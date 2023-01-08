@@ -35,8 +35,9 @@ limit             = 'LIMIT', integer, [(',' | 'OFFSET'), integer] ;
 columnList        = 'identifier', [{',', identifier}] ;
 valueList         = value, [{',', value}] ;
 columnValues      = identifier, '=', value, [{identifier, '=', value}] ;
-
 identifier        = litteral
+
+(* lexer skannar dessa så att de blir terminal nodes *)
 litteral          = ('_' | letter), [{letter | digit | '_' }] ;
 string            = "'", [ non "'" ], "'"
                   | '"', [ non '"' ], '"' ;
@@ -54,7 +55,9 @@ const tokens = [null, // dont begin at 0
   'FROM', 'DESC', 'ASC', 'SET', 'AND', 'AS',
   'OR', 'IN', 'BY',
   // end of keywords
-  ';', ',', '(', ')', '=', '<', '>',
+  ';', ',', '(', ')',
+  // end of separators
+  '=', '<', '>', '<=', '>=', '<>',
   // end of operators
   '*', 'string', 'number', 'litteral'
 ],
@@ -62,7 +65,9 @@ tokenKeys = Object.fromEntries(
   tokens.map((t,i)=>[tokens[i], i])),
 keywords = tokens.slice(1, tokenKeys['BY']-1),
 keywordKeys = Object.fromEntries(
-  keywords.map((k,i)=>[tokens[i],i]));
+  keywords.map((k,i)=>[tokens[i],i])),
+keywdNotCleaned = {
+  'ASC':1, 'DESC':2, 'AND':3, 'OR':4};
 
 
 const isDigit = (c) => {
@@ -85,7 +90,23 @@ class Parser {
   scan(text) {
     this._sqlText = text;
     this._pos = -1;
-    const tree = this.parse.call(this);
+    this.root = this.parse.call(this);
+    this.#cleanTree(this.root);
+    this.root = this.#flattenTree(this.root);
+    return this.root;
+  }
+
+  /**
+   * Only usefull for tracing cst tree generation
+   * @param {cstNode} [tree]
+   * @returns {cstNode} // the tree without parent
+   */
+  noParentTree(tree = this.root) {
+    const w = (n) => {
+      const ch = n.ch.map(m=>w(m));
+      return {...n, ch, p:undefined};
+    }
+    return w(tree);
   }
 
   _genErrMsg(msg, pos = this._pos) {
@@ -138,8 +159,16 @@ class Parser {
         ++this._pos;
         return ret;
 
+      case '<': case '>':
+        const nc = this._peek();
+        if (nc === '=' || (c === '<' && nc === '>')) {
+          const op = c + this._advance(),
+                tok = tokens[tokenKeys[op]];
+          return this._asTok(pos, tok);
+        }
+        // else fallthrough
       case ';': case ',': case '(': case ')':
-      case '=': case '<': case '>': case ';': case '*':
+      case '=': case ';': case '*':
         return this._asTok(pos, c);
       default:
         if (isDigit(c)) {
@@ -176,8 +205,10 @@ class Parser {
              vlu : ()=>tok.str;
           }, chAdd = (p, ch)=>{
             if (isObject(ch)) {
-              p.ch.push(ch);
-              ch.p = p;
+              if (p.ch.indexOf(ch) === -1) {
+                p.ch.push(ch);
+                ch.p = p;
+              }
             } else if (Array.isArray(ch)) {
               ch.forEach(c=>chAdd(p, c));
             }
@@ -198,7 +229,7 @@ class Parser {
               const chs = [];
               let ch, oks = 0;
               for (const fn of fncs) {
-                if (!(ch = fn()))
+                if (!(ch = fn(parent)))
                   break;
                 if (isObject(ch))
                   chs.push(ch);
@@ -214,7 +245,7 @@ class Parser {
               const chs = [], {back} = init();
               let ch;
               for (const fn of fncs) {
-                if ((ch = fn()))
+                if ((ch = fn(parent)))
                   return chAdd(parent, ch);
                 back();
               }
@@ -246,7 +277,8 @@ class Parser {
               return  true;
             }
           }, terminal = (name, parent) =>{
-            return _terminal = (tok = _t._curTok)=> {
+            return _terminal = ()=> {
+              const tok = _t._curTok
               if (tok?.tok === tokenKeys[name] ||
                   tok?.str=== name)
               {
@@ -284,6 +316,8 @@ class Parser {
           ], root)()
       )
         chAdd(root, ch);
+      else
+        err("Förväntade ett SELECT, UPDATE, INSERT eller DELETE statement.")
       if (!terminal(';', root)()) err('Förväntade ;');
       if (!root.ch.length) err('Kan inte parsa SQL uttrycket');
       return root;
@@ -536,14 +570,13 @@ class Parser {
       const me = mkNode(p, operator);
       const lt = sqlsh(terminal('<', me)),
             gt = sqlsh(terminal('>', me)),
-            eq = sqlsh(terminal('=', me));
+            eq = sqlsh(terminal('=', me)),
+            ne = sqlsh(terminal('<>', me)),
+            lteq = sqlsh(terminal('<=', me)),
+            gteq = sqlsh(terminal('>=', me))
 
       if (ch = orSequence([
-          andSequence([
-            lt, optional(orSequence([gt, eq], me), me),
-          ], me),
-          andSequence([gt, optional(eq, me)], me),
-          eq
+          lt, gt, eq, ne, lteq, gteq
         ], me)()
       ) {
         chAdd(me, ch);
@@ -775,6 +808,50 @@ class Parser {
     //digit = '0' to '9' ;
 
     return expr;
+  }
+
+  // remove all terminals if they are not of concern hinseforth
+  #cleanTree(root) {
+    const walk = (ast) => {
+      if (!ast) return;
+      // all below = are keywords and separators
+      // see: tokens and keyWdNotCleaned
+      if (ast.end && ast.tok.tok < tokenKeys['='] &&
+          !keywdNotCleaned[keywordKeys[ast.tok.tok]])
+      {
+        return;
+      }
+
+      ast.ch = ast.ch.filter(walk);
+      return true;
+    }
+
+    return walk(root);
+  }
+
+  #flattenTree(root) {
+    const byPass = (byPassNode)=>{
+      const shiftIn = byPassNode.ch[0];
+      byPassNode.p.ch[
+        byPassNode.p.ch.indexOf(byPassNode)] = shiftIn;
+      shiftIn.p = byPassNode.p;
+      shiftIn.type = byPassNode.type;
+      return shiftIn;
+    }
+
+    const walk = (cst) => {
+      if (!cst) return;
+
+      switch (cst.type) {
+      case 'identifier': return byPass(cst);
+      case 'operator': return byPass(cst);
+      case 'alias': return byPass(cst);
+      }
+
+      cst.ch.forEach(walk);
+      return cst;
+    }
+    return walk(root);
   }
 }
 
