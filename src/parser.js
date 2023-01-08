@@ -7,8 +7,8 @@ expr = (select | update | insert | delete), ';' ;
 selectExpr        = 'SELECT', selectFieldList, 'FROM', selectTableList, [where],
                       [groupBy], [having], [orderBy], [limit] ;
 
-insertExpr        = 'INSERT', 'INTO', [columnList], identifier, 'VALUES',
-                      '(', valueList ')' ;
+insertExpr        = 'INSERT', 'INTO', identifier, ['(', columnList, ')'],
+                      'VALUES', '(', valueList ')' ;
 
 updateExpr        = 'UPDATE', identifier, 'SET', columnValues, [where] ;
 
@@ -27,7 +27,7 @@ condition         = identifier, operator, value
                   | identifier, 'IN', '(', valueList, ')' ;
 operator          = '<>' | '<=' | '>=' | '<' | '>' | '=' ;
 value             = string  | number ;
-groupBy           = 'GROUP', 'BY', identifier ;
+groupBy           = 'GROUP', 'BY', identifier, [{',', identifier}] ;
 having            = 'HAVING', conditionList  ;
 orderBy           = 'ORDER', 'BY', orderByField, [{orderByField}] ;
 orderByField      = identifier, ['DESC' | ASC] ;
@@ -103,6 +103,10 @@ class Parser {
   // begin lexer
   _advance() {return this._sqlText[++this._pos];}
   _peek() {return this._sqlText[this._pos+1];}
+  _rewind(tok) {
+    this._pos = tok.pos + tok.str.length-1;
+    this._curTok = tok;
+  };
   _asTok(pos, tokName) {
     const str = this._sqlText.substring(pos, this._pos+1),
           tok = tokenKeys[tokName];
@@ -116,7 +120,6 @@ class Parser {
 
     while((c = this._advance())) {
       if (c.charCodeAt(0) < 33 /*'!'*/) { // whitespace
-        if (pos !== undefined) return this._toTok(pos);
         continue;
       }
 
@@ -131,7 +134,9 @@ class Parser {
           esc = c === '\\';
         }
         --this._pos; // don't catch trailing '"'
-        return this._asTok(pos+1, 'string');
+        const ret = this._asTok(pos+1, 'string');
+        ++this._pos;
+        return ret;
 
       case ';': case ',': case '(': case ')':
       case '=': case '<': case '>': case ';': case '*':
@@ -155,7 +160,6 @@ class Parser {
       }
     }
   }
-  _rewind(tok) {this._pos = tok.pos;};
 
   // begin parser
   _parser() {
@@ -184,11 +188,15 @@ class Parser {
             return {tok, back: ()=>_t._rewind(tok)};
           }, sqlsh = (fn) => {
             return _sqlsh = (p) => {
-              try {return fn(p)} catch(e) {}
+              try {return fn(p)} catch(e) {
+                if (!(e instanceof SyntaxError))
+                  throw e;
+              }
             }
           }, andSequence = (fncs, parent)=>{
             return _andSequence = ()=>{
-              const chs = []; let ch;
+              const chs = [];
+              let ch, oks = 0;
               for (const fn of fncs) {
                 if (!(ch = fn()))
                   break;
@@ -196,15 +204,19 @@ class Parser {
                   chs.push(ch);
                 else if (Array.isArray(ch))
                   chs.splice(0, 0, ...ch);
+                ++oks;
               }
-              return chs.length > 0 ? chs : null;
+              if (oks === fncs.length)
+                return chs;
             }
           }, orSequence = (fncs, parent) => {
             return _orSequence = () => {
-              const chs = []; let ch;
+              const chs = [], {back} = init();
+              let ch;
               for (const fn of fncs) {
                 if ((ch = fn()))
                   return chAdd(parent, ch);
+                back();
               }
               return false;
             }
@@ -225,10 +237,13 @@ class Parser {
             }
           }, optional = (fn, parent) => {
             return _optional = ()=>{
-              let ch;
-              if (ch = sqlsh(fn)(parent))
+              let ch; const {back} = init();
+              if (ch = sqlsh(fn)(parent)) {
                 chAdd(parent, ch);
-              return ch || true;
+                return ch;
+              }
+                back();
+              return  true;
             }
           }, terminal = (name, parent) =>{
             return _terminal = (tok = _t._curTok)=> {
@@ -288,24 +303,36 @@ class Parser {
           optional(groupBy, me), optional(having, me),
           optional(orderBy, me), optional(limit, me)
         ], me)()
-      )
-        return chAdd(me, ch);
+      ) {
+        chAdd(me, ch);
+        return me;
+      }
     }
 
-    //insertExpr        = 'INSERT', 'INTO', [columnList], identifier, 'VALUES',
-    //                    '(', valueList ')' ;
+    //insertExpr        = 'INSERT', 'INTO', identifier, ['(', columnList, ')'],
+    //                      'VALUES', '(', valueList ')' ;
     const insertExpr = (p) => {
       let ch, {tok} = init();
       const me = mkNode(p, insertExpr);
 
-      if (!sqlsh(terminal('INSERT', me))()) return;
       if (ch = andSequence([
-          terminal('INTO', me), optional(columnList, me),
-          identifier, terminal('VALUES', me),
+          sqlsh(terminal('INSERT', me),me),
+          terminal('INTO', me),
+          identifier,
+          optional(
+            andSequence([
+              sqlsh(terminal('(', me), me),
+              columnList,
+              sqlsh(terminal(')', me), me)
+            ], me)
+          , me),
+          terminal('VALUES', me),
           terminal('(', me), valueList, terminal(')')
         ], me)()
-      )
-        return chAdd(me, ch);
+      ) {
+        chAdd(me, ch);
+        return me;
+      }
     }
 
     // updateExpr        = 'UPDATE', identifier, 'SET', columnValues, [where] ;
@@ -313,13 +340,15 @@ class Parser {
       let ch, {tok} = init();
       const me = mkNode(p, updateExpr);
 
-      if (!sqlsh(terminal('UPDATE', me))()) return;
       if (ch = andSequence([
+          sqlsh(terminal('UPDATE', me), me),
           identifier, terminal('SET', me), columnValues,
           optional(where, me),
         ], me)()
-      )
-        return chAdd(me, ch);
+      ) {
+        chAdd(me, ch);
+        return me;
+      }
     }
 
     // deleteExpr        = 'DELETE', 'FROM', identifier, [where] ;
@@ -327,12 +356,16 @@ class Parser {
       let ch, {tok} = init();
       const me = mkNode(p, deleteExpr);
 
-      if (!sqlsh(terminal('DELETE', me))()) return;
       if (ch = andSequence([
-          terminal('FROM', me), identifier, optional(where, me)
+          sqlsh(terminal('DELETE', me), me),
+          terminal('FROM', me),
+          identifier,
+          optional(where, me)
         ], me)()
-      )
-        return chAdd(me, ch);
+      ) {
+        chAdd(me, ch);
+        return me;
+      }
     }
 
     //selectFieldList   = selectField, [{',' , selectField}] ;
@@ -346,9 +379,11 @@ class Parser {
             ], me))
           , me)
         ], me)()
-      )
+      ) {
         chAdd(me, ch);
-      return ch
+        return me;
+      }
+      err('Förväntade fält');
     }
 
 //  selectField  = (func | identifier ), [alias]
@@ -357,17 +392,18 @@ class Parser {
       let ch,  {tok} = init();
       const me = mkNode(p, selectField);
       if (ch = orSequence([
+          sqlsh(terminal('*', me)),
           andSequence([
             orSequence([
               func, identifier
             ], me),
             optional(alias, me)
           ], me),
-          terminal('*', me)
         ], me)()
-      )
+      ) {
         chAdd(me, ch);
-      return ch
+        return me;
+      }
     }
 
 // func  = identifier, '(', ( identifier | '*' ) , ')' ;
@@ -375,16 +411,18 @@ class Parser {
       let ch,  {tok} = init();
       const me = mkNode(p, func);
       if (ch = andSequence([
-          identifier, sqlsh(terminal('('), me),
+          identifier,
+          sqlsh(terminal('('), me),
           orSequence([
             identifier,
             sqlsh(terminal('*', me))
           ], me),
           sqlsh(terminal(')'), me),
         ], me)()
-      )
+      ) {
         chAdd(me, ch);
-      return ch
+        return me;
+      }
     }
 
     //alias             = 'AS', identifier ;
@@ -395,9 +433,10 @@ class Parser {
       if (ch = andSequence([
           identifier, optional(alias, me)
         ], me)()
-      )
+      ) {
         chAdd(me, ch);
-      return ch
+        return me;
+      }
     }
 
     //selectTableList   = selectTable, [{',', selectTable}] ;
@@ -413,9 +452,11 @@ class Parser {
             , me),
           me)
         ], me)()
-      )
+      ) {
         chAdd(me, ch);
-      return ch;
+        return me;
+      }
+      err('Förväntade en tabell');
     }
 
     //selectTable       = identifier, [alias] ;
@@ -426,42 +467,48 @@ class Parser {
           identifier,
           optional(alias, me)
         ], me)()
-      )
+      ) {
         chAdd(me, ch);
-      return ch
+        return me;
+      }
     }
 
     //where             = 'WHERE', conditionList,
     const where = (p) => {
       let ch,  {tok} = init();
       const me = mkNode(p, where);
-      if (!terminal('WHERE', me)()) err("Förväntade WHERE", tok);
       if (ch = andSequence([
+          terminal('WHERE', me),
           conditionList,
         ], me)()
-      )
+      ) {
         chAdd(me, ch);
-      return ch
+        return me;
+      }
     }
     //conditionList     = condition, [{('AND' | 'OR'), condition}] ;
     const conditionList = (p) => {
       let ch,  {tok} = init();
       const me = mkNode(p, conditionList);
       if (ch = andSequence([
-          condition, optional(
+          condition,
+          optional(
             repetition(
-              orSequence([
-                sqlsh(terminal('AND', me)),
-                sqlsh(terminal('OR', me))
-              ]),
-              condition
+              andSequence([
+                orSequence([
+                  sqlsh(terminal('AND', me)),
+                  sqlsh(terminal('OR', me))
+                ], me),
+                condition
+              ], me)
             , me)
           , me)
-        ], me) ()
-      )
-        return chAdd(me, ch);
-
-      err('Förväntade en conditionList');
+        ], me)()
+      ) {
+        chAdd(me, ch);
+        return me;
+      }
+      err("Förväntade villkor")
     }
 
     //condition         = identifier, operator, value
@@ -476,8 +523,10 @@ class Parser {
               terminal('(', me), valueList, terminal(')', me)
             ], me)
           ], me)()
-      )
+      ) {
         chAdd(me, ch);
+        return me;
+      }
       return ch
     }
 
@@ -496,30 +545,42 @@ class Parser {
           andSequence([gt, optional(eq, me)], me),
           eq
         ], me)()
-      )
+      ) {
         chAdd(me, ch);
-      return ch;
+        return me;
+      }
+      //err("Förväntade en OPERATOR") TODO enhance error reporting, this breaks
     }
 
     //value             = string | number ;
     const value = (p) => {
       let ch,  {tok} = init();
       const me = mkNode(p, value);
-      if (ch = orSequence([string, number], me)())
+      if (ch = orSequence([string, number], me)()) {
         chAdd(me, ch);
-      return ch;
+        return me;
+      }
     }
 
-    //groupBy           = 'GROUP', 'BY', identifier ;
+    //groupBy  = 'GROUP', 'BY', identifier, [{',', identifier}] ;
     const groupBy = (p) => {
       let ch,  {tok} = init();
       const me = mkNode(p, groupBy);
       if (ch = andSequence([
-          terminal('GROUP', me), terminal('BY', me), identifier
+          terminal('GROUP', me), terminal('BY', me),
+          identifier,
+          optional(
+            repetition(
+              andSequence([
+                sqlsh(terminal(',', me)), identifier
+              ], me)
+            , me)
+          , me)
         ], me)()
-      )
+      ) {
         chAdd(me, ch);
-      return ch;
+        return me;
+      }
     }
 
     //having            = 'HAVING', conditionList  ;
@@ -529,9 +590,10 @@ class Parser {
       if (ch = andSequence([
           terminal('HAVING', me), conditionList
         ], me)()
-      )
+      ) {
         chAdd(me, ch);
-      return ch;
+        return me;
+      }
     }
 
     //orderBy           = 'ORDER', 'BY', orderByField, [{orderByField}] ;
@@ -539,14 +601,20 @@ class Parser {
       let ch,  {tok} = init();
       const me = mkNode(p, orderBy);
       if (ch = andSequence([
-          terminal('ORDER', me), terminal('BY', me), orderByField,
-            optional(
-              repetition(orderByField, me)
+          terminal('ORDER', me), terminal('BY', me),
+          orderByField,
+          optional(
+            repetition(
+              andSequence([
+                sqlsh(terminal(',',me)), orderByField
+              ], me)
             , me)
+          , me)
         ], me)()
-      )
+      ) {
         chAdd(me, ch);
-      return ch;
+        return me;
+      }
     }
 
     //orderByField      = identifier, ['DESC' | ASC] ;
@@ -561,9 +629,10 @@ class Parser {
             ], me)
           , me)
         ], me)()
-      )
+      ) {
         chAdd(me, ch);
-      return ch;
+        return me;
+      }
     }
 
     //limit             = 'LIMIT', integer, [(',' | 'OFFSET'), integer] ;
@@ -573,16 +642,19 @@ class Parser {
       if (ch = andSequence([
           terminal('LIMIT', me), integer,
           optional(
-            orSequence([
-              sqlsh(terminal(',', me)),
-              sqlsh(terminal('OFFSET', me))
-            ], me),
-            integer
+            andSequence([
+              orSequence([
+                sqlsh(terminal(',', me), me),
+                sqlsh(terminal('OFFSET', me), me)
+              ], me),
+              integer
+            ], me)
           , me)
         ], me)()
-      )
+      ) {
         chAdd(me, ch);
-      return ch;
+        return me;
+      }
     }
 
     //columnList        = 'identifier', [{',', identifier}] ;
@@ -592,13 +664,17 @@ class Parser {
       if (ch = andSequence([
           identifier, optional(
             repetition(
-              andSequence([terminal(',', me), identifier])
+              andSequence([
+                sqlsh(terminal(',', me),me),
+                identifier
+              ])
             , me)
           , me)
         ], me)()
-      )
+      ) {
         chAdd(me, ch);
-      return ch;
+        return me;
+      }
     }
 
     //valueList         = value, [{',', value}] ;
@@ -608,13 +684,14 @@ class Parser {
       if (ch = andSequence([
           value, optional(
             repetition(
-              andSequence([terminal(',', me), value])
+              andSequence([sqlsh(terminal(',', me)), value])
             , me)
           , me)
         ], me)()
-      )
+      ) {
         chAdd(me, ch);
-      return ch;
+        return me;
+      }
     }
 
     //columnValues      = identifier, '=', value, [{identifier, '=', value}] ;
@@ -630,9 +707,10 @@ class Parser {
             , me)
           , me)
         ], me)()
-      )
+      ) {
         chAdd(me, ch);
-      return ch;
+        return me;
+      }
     }
 
     //identifier = litteral ;
