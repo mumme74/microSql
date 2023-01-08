@@ -2,39 +2,44 @@ const {isObject, isFunction, isString} = require('./helpers.js');
 
 /*
 // simplified SQL grammar
-expr = (select | update | insert | delete), ';' ;
+stmt = (select | update | insert | delete), ';' ;
 
-selectExpr        = 'SELECT', selectFieldList, 'FROM', selectTableList, [where],
+selectStmt        = 'SELECT', selectFieldList, 'FROM', selectTableList, [where],
                       [groupBy], [having], [orderBy], [limit] ;
 
-insertExpr        = 'INSERT', 'INTO', identifier, ['(', columnList, ')'],
+insertStmt        = 'INSERT', 'INTO', tableName, ['(', fieldList, ')'],
                       'VALUES', '(', valueList ')' ;
 
-updateExpr        = 'UPDATE', identifier, 'SET', columnValues, [where] ;
+updateStmt        = 'UPDATE', tableName, 'SET', columnValues, [where] ;
 
-deleteExpr        = 'DELETE', 'FROM', identifier, [where] ;
+deleteStmt        = 'DELETE', 'FROM', tableName, [where] ;
 
 selectFieldList   = selectField, [{',' , selectField}] ;
-selectField       = ( identifier | func ), [alias]
-                  | '*' ;
-func              = identifier, '(', ( identifier | '*' ) , ')' ;
+selectField       = ( fieldName | func ), [alias]
+                  | star ;
+star              = '*' ;
+fieldName         = identifier ;
+func              = funcName, '(', ( fieldName | star ) , ')' ;
+funcName          = identifier ;
 alias             = 'AS', identifier ;
 selectTableList   = selectTable, [{',', selectTable}] ;
-selectTable       = identifier, [alias] ;
+selectTable       = tableName, [alias] ;
+tableName         = identifier ;
 where             = 'WHERE', conditionList,
 conditionList     = condition, [{('AND' | 'OR'), condition}] ;
-condition         = identifier, operator, value
-                  | identifier, 'IN', '(', valueList, ')' ;
+condition         = fieldName, operator, value
+                  | fieldName, 'IN', '(', valueList, ')' ;
 operator          = '<>' | '<=' | '>=' | '<' | '>' | '=' ;
 value             = string  | number ;
-groupBy           = 'GROUP', 'BY', identifier, [{',', identifier}] ;
+groupBy           = 'GROUP', 'BY', showField, [{',', showField}] ;
+showField         = identifier, ['(', (identifier | star) ,')'] ;
 having            = 'HAVING', conditionList  ;
 orderBy           = 'ORDER', 'BY', orderByField, [{orderByField}] ;
-orderByField      = identifier, ['DESC' | ASC] ;
+orderByField      = showField, ['DESC' | ASC] ;
 limit             = 'LIMIT', integer, [(',' | 'OFFSET'), integer] ;
-columnList        = 'identifier', [{',', identifier}] ;
+fieldList         = 'fieldName', [{',', fieldName}] ;
 valueList         = value, [{',', value}] ;
-columnValues      = identifier, '=', value, [{identifier, '=', value}] ;
+columnValues      = fieldName, '=', value, [{',', fieldName, '=', value}] ;
 identifier        = litteral
 
 (* lexer skannar dessa så att de blir terminal nodes *)
@@ -300,19 +305,19 @@ class Parser {
           }
     let lastErr = null;
 
-    // expr = (selectExpr | updateExpr | insertExpr | deleteExpr), ';' ;
-    const expr = ()=>{
+    // stmt = (selectStmt | updateStmt | insertStmt | deleteStmt), ';' ;
+    const stmt = ()=>{
       // reset
       lastErr = null;
       init();
 
       let ch;
 
-      const root = mkNode(null, expr);
+      const root = mkNode(null, stmt);
       const seq = [];
       if (ch = orSequence([
-            selectExpr, updateExpr,
-            insertExpr, deleteExpr
+            selectStmt, updateStmt,
+            insertStmt, deleteStmt
           ], root)()
       )
         chAdd(root, ch);
@@ -323,11 +328,11 @@ class Parser {
       return root;
     }
 
-    //selectExpr        = 'SELECT', selectFieldList, 'FROM', selectTableList, [where],
+    //selectStmt        = 'SELECT', selectFieldList, 'FROM', selectTableList, [where],
     //                  [groupBy], [having], [orderBy], [limit] ;
-    const selectExpr = (p)=>{
-      let ch, oCh, {tok} = init();
-      const me = mkNode(p, selectExpr);
+    const selectStmt = (p)=>{
+      let ch;
+      const me = mkNode(p, selectStmt);
 
       if (!sqlsh(terminal('SELECT', me))()) return;
 
@@ -343,11 +348,11 @@ class Parser {
       }
     }
 
-    //insertExpr        = 'INSERT', 'INTO', identifier, ['(', columnList, ')'],
+    //insertStmt        = 'INSERT', 'INTO', identifier, ['(', fieldList, ')'],
     //                      'VALUES', '(', valueList ')' ;
-    const insertExpr = (p) => {
-      let ch, {tok} = init();
-      const me = mkNode(p, insertExpr);
+    const insertStmt = (p) => {
+      let ch;
+      const me = mkNode(p, insertStmt);
 
       if (ch = andSequence([
           sqlsh(terminal('INSERT', me),me),
@@ -356,7 +361,7 @@ class Parser {
           optional(
             andSequence([
               sqlsh(terminal('(', me), me),
-              columnList,
+              fieldList,
               sqlsh(terminal(')', me), me)
             ], me)
           , me),
@@ -369,10 +374,10 @@ class Parser {
       }
     }
 
-    // updateExpr        = 'UPDATE', identifier, 'SET', columnValues, [where] ;
-    const updateExpr = (p) => {
-      let ch, {tok} = init();
-      const me = mkNode(p, updateExpr);
+    // updateStmt        = 'UPDATE', identifier, 'SET', columnValues, [where] ;
+    const updateStmt = (p) => {
+      let ch;
+      const me = mkNode(p, updateStmt);
 
       if (ch = andSequence([
           sqlsh(terminal('UPDATE', me), me),
@@ -385,10 +390,10 @@ class Parser {
       }
     }
 
-    // deleteExpr        = 'DELETE', 'FROM', identifier, [where] ;
-    const deleteExpr = (p) => {
-      let ch, {tok} = init();
-      const me = mkNode(p, deleteExpr);
+    // deleteStmt        = 'DELETE', 'FROM', identifier, [where] ;
+    const deleteStmt = (p) => {
+      let ch;
+      const me = mkNode(p, deleteStmt);
 
       if (ch = andSequence([
           sqlsh(terminal('DELETE', me), me),
@@ -404,7 +409,7 @@ class Parser {
 
     //selectFieldList   = selectField, [{',' , selectField}] ;
     const selectFieldList = (p) => {
-      let ch,  {tok} = init();
+      let ch;
       const me = mkNode(p, selectFieldList);
       if (ch = andSequence([
           selectField, optional(
@@ -421,18 +426,18 @@ class Parser {
     }
 
 //  selectField  = (func | identifier ), [alias]
-//               | '*' ;
+//               | star ;
     const selectField = (p) => {
-      let ch,  {tok} = init();
+      let ch;
       const me = mkNode(p, selectField);
       if (ch = orSequence([
-          sqlsh(terminal('*', me)),
           andSequence([
             orSequence([
-              func, identifier
+              func, fieldName
             ], me),
-            optional(alias, me)
+            optional(alias, me),
           ], me),
+          star
         ], me)()
       ) {
         chAdd(me, ch);
@@ -440,16 +445,40 @@ class Parser {
       }
     }
 
-// func  = identifier, '(', ( identifier | '*' ) , ')' ;
+    // star              = '*' ;
+    const star = (p) => {
+      let ch;
+      const me = mkNode(p, star);
+      if (ch = sqlsh(terminal('*', me), me)()) {
+        chAdd(me, ch);
+        return me;
+      }
+    }
+
+    const identifierAsName = (p, fn) => {
+      let ch;
+      const me = mkNode(p, fn);
+      if (ch = identifier(me)) {
+        chAdd(me, ch);
+        return me;
+      }
+    }
+
+    // fieldName         = identifier ;
+    const fieldName = (p) => {
+      return identifierAsName(p, fieldName);
+    }
+
+    // func  = funcName, '(', ( fieldName | star ) , ')' ;
     const func = (p) => {
-      let ch,  {tok} = init();
+      let ch;
       const me = mkNode(p, func);
       if (ch = andSequence([
-          identifier,
+          funcName,
           sqlsh(terminal('('), me),
           orSequence([
-            identifier,
-            sqlsh(terminal('*', me))
+            fieldName,
+            star
           ], me),
           sqlsh(terminal(')'), me),
         ], me)()
@@ -459,12 +488,17 @@ class Parser {
       }
     }
 
+    // funcName          = identifier ;
+    const funcName = (p) => {
+      return identifierAsName(p, funcName);
+    }
+
     //alias             = 'AS', identifier ;
     const alias = (p) => {
-      let ch,  {tok} = init();
+      let ch;
       const me = mkNode(p, alias);
-      if (!terminal('AS', me)()) err("Förväntade AS", tok);
       if (ch = andSequence([
+          sqlsh(terminal('AS', me), me),
           identifier, optional(alias, me)
         ], me)()
       ) {
@@ -475,7 +509,7 @@ class Parser {
 
     //selectTableList   = selectTable, [{',', selectTable}] ;
     const selectTableList = (p) => {
-      let ch,  {tok} = init();
+      let ch;
       const me = mkNode(p, selectTableList);
       if (ch = andSequence([
           selectTable,
@@ -493,12 +527,12 @@ class Parser {
       err('Förväntade en tabell');
     }
 
-    //selectTable       = identifier, [alias] ;
+    // selectTable       = tableName, [alias] ;
     const selectTable = (p) => {
-      let ch,  {tok} = init();
+      let ch;
       const me = mkNode(p, selectTable);
       if (ch = andSequence([
-          identifier,
+          tableName,
           optional(alias, me)
         ], me)()
       ) {
@@ -507,9 +541,14 @@ class Parser {
       }
     }
 
+    // selectTable       = tableName, [alias] ;
+    const tableName = (p) => {
+      return identifierAsName(p, tableName);
+    }
+
     //where             = 'WHERE', conditionList,
     const where = (p) => {
-      let ch,  {tok} = init();
+      let ch;
       const me = mkNode(p, where);
       if (ch = andSequence([
           terminal('WHERE', me),
@@ -520,9 +559,10 @@ class Parser {
         return me;
       }
     }
+
     //conditionList     = condition, [{('AND' | 'OR'), condition}] ;
     const conditionList = (p) => {
-      let ch,  {tok} = init();
+      let ch;
       const me = mkNode(p, conditionList);
       if (ch = andSequence([
           condition,
@@ -545,15 +585,15 @@ class Parser {
       err("Förväntade villkor")
     }
 
-    //condition         = identifier, operator, value
-    //                  | identifier, 'IN', '(', value, ')' ;
+    //condition         = fieldName, operator, value
+    //                  | fieldName, 'IN', '(', value, ')' ;
     const condition = (p) => {
-      let ch,  {tok} = init();
+      let ch;
       const me = mkNode(p, condition);
       if (ch = orSequence([
-            andSequence([identifier, operator, value], me),
+            andSequence([fieldName, operator, value], me),
             andSequence([
-              identifier, terminal('IN', me),
+              fieldName, terminal('IN', me),
               terminal('(', me), valueList, terminal(')', me)
             ], me)
           ], me)()
@@ -566,7 +606,7 @@ class Parser {
 
     //operator          = '<>' | '<=' | '<' | '>=' | '>' | '=' ;
     const operator = (p) => {
-      let ch,  {tok} = init();
+      let ch;
       const me = mkNode(p, operator);
       const lt = sqlsh(terminal('<', me)),
             gt = sqlsh(terminal('>', me)),
@@ -587,7 +627,7 @@ class Parser {
 
     //value             = string | number ;
     const value = (p) => {
-      let ch,  {tok} = init();
+      let ch;
       const me = mkNode(p, value);
       if (ch = orSequence([string, number], me)()) {
         chAdd(me, ch);
@@ -595,17 +635,17 @@ class Parser {
       }
     }
 
-    //groupBy  = 'GROUP', 'BY', identifier, [{',', identifier}] ;
+    //groupBy  = 'GROUP', 'BY', showField, [{',', showField}] ;
     const groupBy = (p) => {
-      let ch,  {tok} = init();
+      let ch;
       const me = mkNode(p, groupBy);
       if (ch = andSequence([
           terminal('GROUP', me), terminal('BY', me),
-          identifier,
+          showField,
           optional(
             repetition(
               andSequence([
-                sqlsh(terminal(',', me)), identifier
+                sqlsh(terminal(',', me)), showField
               ], me)
             , me)
           , me)
@@ -616,9 +656,30 @@ class Parser {
       }
     }
 
+    // showField         = identifier, ['(', (identifier | star) ,')'] ;
+    const showField = (p) => {
+      let ch;
+      const me = mkNode(p, showField);
+      if (ch = andSequence([
+          identifier, optional(
+            andSequence([
+              sqlsh(terminal('(', me), me),
+              orSequence([
+                identifier, star
+              ], me),
+              sqlsh(terminal(')', me), me)
+            ], me)
+          )
+        ], me)()
+      ) {
+        chAdd(me, ch);
+        return me;
+      }
+    }
+
     //having            = 'HAVING', conditionList  ;
     const having = (p) => {
-      let ch,  {tok} = init();
+      let ch;
       const me = mkNode(p, having);
       if (ch = andSequence([
           terminal('HAVING', me), conditionList
@@ -631,7 +692,7 @@ class Parser {
 
     //orderBy           = 'ORDER', 'BY', orderByField, [{orderByField}] ;
     const orderBy = (p) => {
-      let ch,  {tok} = init();
+      let ch;
       const me = mkNode(p, orderBy);
       if (ch = andSequence([
           terminal('ORDER', me), terminal('BY', me),
@@ -650,12 +711,12 @@ class Parser {
       }
     }
 
-    //orderByField      = identifier, ['DESC' | ASC] ;
+    //orderByField      = showField, ['DESC' | ASC] ;
     const orderByField = (p) => {
-      let ch,  {tok} = init();
+      let ch;
       const me = mkNode(p, orderByField);
       if (ch = andSequence([
-          identifier, optional(
+          showField, optional(
             orSequence([
               sqlsh(terminal('DESC', me)),
               sqlsh(terminal('ASC', me))
@@ -670,7 +731,7 @@ class Parser {
 
     //limit             = 'LIMIT', integer, [(',' | 'OFFSET'), integer] ;
     const limit = (p) => {
-      let ch,  {tok} = init();
+      let ch;
       const me = mkNode(p, limit);
       if (ch = andSequence([
           terminal('LIMIT', me), integer,
@@ -690,16 +751,16 @@ class Parser {
       }
     }
 
-    //columnList        = 'identifier', [{',', identifier}] ;
-    const columnList = (p) => {
-      let ch,  {tok} = init();
-      const me = mkNode(p, columnList);
+    //fieldList        = 'fieldName', [{',', fieldName}] ;
+    const fieldList = (p) => {
+      let ch;
+      const me = mkNode(p, fieldList);
       if (ch = andSequence([
-          identifier, optional(
+          fieldName, optional(
             repetition(
               andSequence([
                 sqlsh(terminal(',', me),me),
-                identifier
+                fieldName
               ])
             , me)
           , me)
@@ -712,7 +773,7 @@ class Parser {
 
     //valueList         = value, [{',', value}] ;
     const valueList = (p) => {
-      let ch,  {tok} = init();
+      let ch;
       const me = mkNode(p, valueList);
       if (ch = andSequence([
           value, optional(
@@ -727,16 +788,20 @@ class Parser {
       }
     }
 
-    //columnValues      = identifier, '=', value, [{identifier, '=', value}] ;
+    //columnValues      = fieldName, '=', value, [{',', fieldName, '=', value}] ;
     const columnValues = (p) => {
-      let ch,  {tok} = init();
+      let ch;
       const me = mkNode(p, columnValues);
       if (ch = andSequence([
-          identifier, terminal('=', me), value,
+          fieldName,
+          sqlsh(terminal('=', me),me),
+          value,
           optional(
             repetition(
               andSequence([
-                identifier, terminal(',', me), value])
+                fieldName,
+                sqlsh(terminal(',', me), me),
+              value])
             , me)
           , me)
         ], me)()
@@ -748,7 +813,7 @@ class Parser {
 
     //identifier = litteral ;
     const identifier = (p) => {
-      let ch, {tok} = init();
+      let ch;
       const me = mkNode(p, identifier);
       if (ch = litteral(me)) {
         chAdd(me, ch);
@@ -807,7 +872,7 @@ class Parser {
     //letter = 'A' | 'a' to 'Z' | 'z' ;
     //digit = '0' to '9' ;
 
-    return expr;
+    return stmt;
   }
 
   // remove all terminals if they are not of concern hinseforth
@@ -841,6 +906,7 @@ class Parser {
 
     const walk = (cst) => {
       if (!cst) return;
+      cst.ch.forEach(walk);
 
       switch (cst.type) {
       case 'identifier': return byPass(cst);
@@ -848,7 +914,6 @@ class Parser {
       case 'alias': return byPass(cst);
       }
 
-      cst.ch.forEach(walk);
       return cst;
     }
     return walk(root);

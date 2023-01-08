@@ -208,7 +208,7 @@ const filterTree = (tree, props = ['type', 'tok.str'])=>{
   props = props.map(p=>p.split('.')); let pr;
   const walk = (n, pCnt = 0) =>{
     if (!n) return;
-    const o = {ch:n.ch?.map(walk)};
+    const o = {};
     props.forEach(p=>{
       if (Array.isArray(p) && p.length > pCnt){
         if (pr = p[pCnt])
@@ -216,6 +216,9 @@ const filterTree = (tree, props = ['type', 'tok.str'])=>{
       } else
         return (n[p] && (o[p]=n[p]))
     });
+
+    if (n.ch && n.ch.length)
+      o.ch = n.ch?.map((m)=>walk(m))
     return o;
   }
   return walk(tree);
@@ -234,15 +237,15 @@ describe('Test CST tree', ()=>{
           type:'selectFieldList', ch:[{
             type:'selectField', ch:[{
               type:'func', tok:{str:'MIN'}, ch:[{
-                type:'identifier', tok:{str:'*'}, end:true
+                type:'identifier', tok:{str:'*'}
               },{
-                type:'alias', tok:{str:'b'}, end:true
+                type:'alias', tok:{str:'b'}
               }]
             }]
           }]
         },{type:'selectTableList', ch:[{
             type: 'selectTable', ch:[{
-              type: 'identifier', tok:{str:'tbl'}, end:true
+              type: 'identifier', tok:{str:'tbl'}
             }]
           }]
         }]
