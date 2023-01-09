@@ -116,6 +116,10 @@ describe('Sucessfull parser queries', ()=>{
     expect((new Parser('DELETE FROM tbl WHERE id IN(1,2,3);')));
   });
 
+  test('Should parse with update', ()=>{
+    expect((new Parser('UPDATE tbl SET text=2, id=1;')));
+  });
+
   test('Should parse with update where =', ()=>{
     expect((new Parser('UPDATE tbl SET text=2 WHERE id=1;')));
   });
@@ -209,10 +213,12 @@ const filterTree = (tree, props = ['type', 'tok.str'])=>{
   const walk = (n, pCnt = 0) =>{
     if (!n) return;
     const o = {};
+    // allow for obj.prop to merge
     props.forEach(p=>{
       if (Array.isArray(p) && p.length > pCnt){
-        if (pr = p[pCnt])
-          o[pr] = p.length-1 > pCnt ? walk(n[pr],pCnt+1) : n[pr];
+        if ((pr = p[pCnt]) && (n[pr] || pCnt))
+          o[pr] = p.length-1 > pCnt ?
+            walk(n[pr],pCnt+1) : n[pr];
       } else
         return (n[p] && (o[p]=n[p]))
     });
@@ -224,13 +230,18 @@ const filterTree = (tree, props = ['type', 'tok.str'])=>{
   return walk(tree);
 }
 
-describe('Test CST tree', ()=>{
-  test('Should match select tree', ()=>{
+describe('Test AST tree', ()=>{
+  test('Should match tree: select', ()=>{
     const parser = new Parser();
-    const tree = parser.scan(
-      'SELECT MIN(*) as a, b, * FROM tbl as t1, t2 WHERE a=1 AND b<>"s" OR c IN (1,2);');
+    const tree = parser.scan(`
+      SELECT MIN(*) as a, b, * FROM tbl as t1, t2
+      WHERE a=1 AND b<>"s" OR c IN (1,2)
+      GROUP BY MIN(*), _ HAVING _a<=0 OR b>='r'
+      ORDER BY MAX(b), b DESC, a ASC
+      LIMIT 10, 20
+    ;`);
     const t = filterTree(tree);
-    console.log('hej')
+    console.log('----------')
     console.log(JSON.stringify(t,null,2));
     expect(t).toMatchObject({
       type:'stmts',ch:[{
@@ -296,6 +307,191 @@ describe('Test CST tree', ()=>{
                   },{
                     type:'number', tok:{str:'2'}
                   }]
+                }]
+              }]
+            }]
+          }]
+        },{
+          type: 'groupBy', ch:[{
+            type:'showField', ch:[{
+              type:'identifier', tok:{str:'MIN'}
+            },{
+              type:'star', tok:{str:'*'}
+            }]
+          },{
+            type:'showField', ch:[{
+              type: 'identifier', tok:{str:'_'}
+            }]
+          }]
+        },{
+          type:'having', ch:[{
+            type:'conditionOr', ch:[{
+              type:'conditionAnd', ch:[{
+                type:'condition', ch:[{
+                  type:'fieldName', tok:{str:'_a'},
+                },{
+                  type:'operator', tok:{str:'<='}
+                },{
+                  type:'number', tok:{str:'0'}
+                }]
+              }]
+            },{
+              type:'conditionAnd',ch:[{
+                type:'condition', ch:[{
+                  type:'fieldName', tok:{str:'b'}
+                },{
+                  type:'operator', tok:{str:'>='}
+                },{
+                  type:'string', tok:{str:'r'}
+                }]
+              }]
+            }]
+          }]
+        },{
+          type:'orderBy',ch:[{
+            type:'orderByField',ch:[{
+              type:'showField',ch:[{
+                type:'identifier',tok:{str:'MAX'}
+              },{
+                type:'identifier',tok:{str:'b'}
+              }]
+            }]
+          },{
+            type:'orderByField',ch:[{
+              type:'showField',ch:[{
+                type:'identifier',tok:{str:'b'}
+              }]
+            },{
+              type:'orderByDESC'
+            }]
+          },{
+            type:'orderByField',ch:[{
+              type:'showField',ch:[{
+                type:'identifier',tok:{str:'a'}
+              }]
+            },{
+              type:'orderByASC'
+            }]
+          }]
+        },{
+          type:'limit',ch:[{
+            type:'integer',tok:{str:'10'}
+          },{
+            type:'integer',tok:{str:'20'}
+          }]
+        }]
+      }]
+    });
+  });
+
+  test('Should match tree: insert ', ()=>{
+    const parser = new Parser();
+    const tree = parser.scan(`
+      INSERT INTO tbl (a,b) VALUES (1,'23\\'')
+    ;`);
+    const t = filterTree(tree);
+    console.log('----------')
+    console.log(JSON.stringify(t,null,2));
+    expect(t).toMatchObject({
+      type:'stmts',ch:[{
+        type:'insertStmt', ch:[{
+          type:'tableName', tok:{str:'tbl'}
+        },{
+          type:'fieldList',ch:[{
+            type:'fieldName',tok:{str:'a'}
+          },{
+            type:'fieldName',tok:{str:'b'}
+          }]
+        },{
+          type:'valueList',ch:[{
+            type:'number',tok:{str:'1'}
+          },{
+            type:'string',tok:{str:'23\''}
+          }]
+        }]
+      }]
+    });
+  });
+
+  test('Should match tree: update', ()=>{
+    const parser = new Parser();
+    const tree = parser.scan(`
+      UPDATE tbl SET a=34,b="75" WHERE a<1 AND b>'23\\''
+    ;`);
+    const t = filterTree(tree);
+    console.log('----------')
+    console.log(JSON.stringify(t,null,2));
+    expect(t).toMatchObject({
+      type:'stmts',ch:[{
+        type:'updateStmt', ch:[{
+          type:'tableName', tok:{str:'tbl'}
+        },{
+          type:'columnValues',ch:[{
+            type:'fieldName',tok:{str:'a'}
+          },{
+            type:'number',tok:{str:'34'}
+          },{
+            type:'fieldName',tok:{str:'b'}
+          },{
+            type:'string',tok:{str:'75'}
+          }]
+        },{
+          type:'where',ch:[{
+            type:'conditionOr',ch:[{
+              type:'conditionAnd',ch:[{
+                type:'condition',ch:[{
+                  type:'fieldName',tok:{str:'a'}
+                },{
+                  type:'operator',tok:{str:'<'}
+                },{
+                  type:'number',tok:{str:'1'}
+                }]
+              },{
+                type:'condition',ch:[{
+                  type:'fieldName',tok:{str:'b'}
+                },{
+                  type:'operator',tok:{str:'>'}
+                },{
+                  type:'string',tok:{str:'23\''}
+                }]
+              }]
+            }]
+          }]
+        }]
+      }]
+    });
+  });
+
+  test('Should match tree: delete', ()=>{
+    const parser = new Parser();
+    const tree = parser.scan(`
+      DELETE FROM tbl WHERE a<1 AND b>'23\\''
+    ;`);
+    const t = filterTree(tree);
+    console.log('----------')
+    console.log(JSON.stringify(t,null,2));
+    expect(t).toMatchObject({
+      type:'stmts',ch:[{
+        type:'deleteStmt', ch:[{
+          type:'tableName', tok:{str:'tbl'}
+        },{
+          type:'where',ch:[{
+            type:'conditionOr',ch:[{
+              type:'conditionAnd',ch:[{
+                type:'condition',ch:[{
+                  type:'fieldName',tok:{str:'a'}
+                },{
+                  type:'operator',tok:{str:'<'}
+                },{
+                  type:'number',tok:{str:'1'}
+                }]
+              },{
+                type:'condition',ch:[{
+                  type:'fieldName',tok:{str:'b'}
+                },{
+                  type:'operator',tok:{str:'>'}
+                },{
+                  type:'string',tok:{str:'23\''}
                 }]
               }]
             }]
