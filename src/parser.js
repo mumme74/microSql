@@ -1,4 +1,4 @@
-const {isObject, isFunction, isString} = require('./helpers.js');
+const { isObject, isFunction, isString } = require('./helpers.js');
 
 /*
 // simplified SQL grammar
@@ -59,7 +59,7 @@ digit             = '0' to '9' ;
 const tokens = [null, // dont begin at 0
   'SELECT', 'OFFSET', 'VALUES', 'INSERT',
   'UPDATE', 'DELETE', 'HAVING',
-  'WHERE', 'ORDER', 'INTO','GROUP', 'LIMIT',
+  'WHERE', 'ORDER', 'INTO', 'GROUP', 'LIMIT',
   'FROM', 'DESC', 'ASC', 'SET', 'AND', 'AS',
   'OR', 'IN', 'BY',
   // end of keywords
@@ -69,12 +69,12 @@ const tokens = [null, // dont begin at 0
   // end of operators
   '*', 'string', 'number', 'litteral'
 ],
-tokenKeys = Object.fromEntries(
-  tokens.map((t,i)=>[tokens[i], i])),
-keywords = tokens.slice(1, tokenKeys['BY']-1),
-keywordKeys = Object.fromEntries(
-  keywords.map((k,i)=>[tokens[i],i])),
-keywdNotCleaned = {'IN':1};
+  tokenKeys = Object.fromEntries(
+    tokens.map((t, i) => [tokens[i], i])),
+  keywords = tokens.slice(1, tokenKeys['BY'] - 1),
+  keywordKeys = Object.fromEntries(
+    keywords.map((k, i) => [tokens[i], i])),
+  keywdNotCleaned = { 'IN': 1 };
 
 
 const isDigit = (c) => {
@@ -83,21 +83,23 @@ const isDigit = (c) => {
 }, isLetter = (c) => {
   c = c.charCodeAt(0)
   return (c >= 65 && c <= 90) ||
-         (c >= 97 && c <= 122);
+    (c >= 97 && c <= 122);
 }
 
 class Parser {
-  _sqlText = '';
-  _pos = -1;
+  #sqlText = '';
+  #pos = -1;
+  #curTok = null;
+
   constructor(sql) {
-    this.parse = this._parser();
     if (sql) this.scan(sql);
   }
 
   scan(text) {
-    this._sqlText = text;
-    this._pos = -1;
-    this.root = this.parse.call(this);
+    this.#sqlText = text;
+    this.#pos = -1;
+    this.#curTok = null;
+    this.root = this.#stmts();
     this.#cleanTree(this.root);
     this.root = this.#flattenTree(this.root);
     return this.root;
@@ -110,820 +112,843 @@ class Parser {
    */
   noParentTree(tree = this.root) {
     const w = (n) => {
-      const ch = n.ch.map(m=>w(m));
-      return {...n, ch, p:undefined};
+      const ch = n.ch.map(m => w(m));
+      return { ...n, ch, p: undefined };
     }
     return w(tree);
   }
 
-  _genErrMsg(msg, pos = this._pos) {
+  #genErrMsg(msg, pos = this.#pos) {
     const chAdj = 15,
-          startPos = pos - chAdj > 0 ? pos -chAdj : 0,
-          padLen = (startPos > 0 ? 3 : 0),
-          sqlStr = (startPos > 0 ? '...' : '') +
-            this._sqlText.slice(startPos, 50),
-          posStr = sqlStr.padStart(
-            sqlStr.length + padLen + pos - startPos, '-')
-             .slice(0, padLen + pos-startPos) + '^'
+      startPos = pos - chAdj > 0 ? pos - chAdj : 0,
+      padLen = (startPos > 0 ? 3 : 0),
+      sqlStr = (startPos > 0 ? '...' : '') +
+        this.#sqlText.slice(startPos, 50),
+      posStr = sqlStr.padStart(
+        sqlStr.length + padLen + pos - startPos, '-')
+        .slice(0, padLen + pos - startPos) + '^'
     return `${msg} vid pos: ${pos}\n ${sqlStr}\n ${posStr}`;
   }
 
   // begin lexer
-  _advance() {return this._sqlText[++this._pos];}
-  _peek() {return this._sqlText[this._pos+1];}
-  _rewind(tok) {
-    this._pos = tok.pos + tok.str.length-1;
-    this._curTok = tok;
+  #advance() { return this.#sqlText[++this.#pos]; }
+  #peek() { return this.#sqlText[this.#pos + 1]; }
+  #rewind(tok) {
+    this.#pos = tok.pos + tok.str.length - 1;
+    this.#curTok = tok;
   };
-  _asTok(pos, tokName, str) {
+  #asTok(pos, tokName, str) {
     const tok = tokenKeys[tokName];
     if (!str)
-      str = this._sqlText.substring(pos, this._pos+1);
+      str = this.#sqlText.substring(pos, this.#pos + 1);
     if (!tokenKeys[tokName])
       throw new SyntaxError(
-        this._genErrMsg(`${str} okänd token`, pos));
-    return this._curTok = {tok, str, pos};
+        this.#genErrMsg(`${str} okänd token`, pos));
+    return this.#curTok = { tok, str, pos };
   }
-  _next() {
+  #next() {
     let c, pos, str = '';
 
-    while((c = this._advance())) {
+    while ((c = this.#advance())) {
       if (c.charCodeAt(0) < 33 /*'!'*/) { // whitespace
         continue;
       }
 
-      if (pos === undefined) pos = this._pos;
+      if (pos === undefined) pos = this.#pos;
 
       switch (c) {
-      case '"': case "'":
-        // läs sträng
-        const quot = c; let esc = false, str = '';
-        while((c = this._advance())) {
-          if (c === quot && !esc) break;
-          esc = c === '\\' && !esc;
-          if (!esc)
-            str += c;
-        }
-        --this._pos; // don't catch trailing '"'
-        const ret = this._asTok(pos+1, 'string', str);
-        ++this._pos;
-        return ret;
+        case '"': case "'":
+          // läs sträng
+          const quot = c; let esc = false, str = '';
+          while ((c = this.#advance())) {
+            if (c === quot && !esc) break;
+            esc = c === '\\' && !esc;
+            if (!esc)
+              str += c;
+          }
+          --this.#pos; // don't catch trailing '"'
+          const ret = this.#asTok(pos + 1, 'string', str);
+          ++this.#pos;
+          return ret;
 
-      case '<': case '>':
-        const nc = this._peek();
-        if (nc === '=' || (c === '<' && nc === '>')) {
-          const op = c + this._advance(),
-                tok = tokens[tokenKeys[op]];
-          return this._asTok(pos, tok);
-        }
+        case '<': case '>':
+          const nc = this.#peek();
+          if (nc === '=' || (c === '<' && nc === '>')) {
+            const op = c + this.#advance(),
+              tok = tokens[tokenKeys[op]];
+            return this.#asTok(pos, tok);
+          }
         // else fallthrough
-      case ';': case ',': case '(': case ')':
-      case '=': case ';': case '*':
-        return this._asTok(pos, c);
-      default:
-        if (isDigit(c)) {
-          while ((c = this._peek()) &&
-                 (c === '.' || isDigit(c)))
-            this._advance();
-          return this._asTok(pos, 'number');
-        } else if (isLetter(c) || c === '_') {
-          while ((c = this._peek()) &&
-                 (c==='_' || isLetter(c) || isDigit(c)))
-            this._advance();
-          const str = this._sqlText.substring(pos, this._pos+1),
-                tok = tokenKeys[str.toUpperCase()];
-          return this._asTok(pos,
-            tok < tokenKeys['string'] ?
-              str.toUpperCase() : 'litteral');
-        }
+        case ';': case ',': case '(': case ')':
+        case '=': case ';': case '*':
+          return this.#asTok(pos, c);
+        default:
+          if (isDigit(c)) {
+            while ((c = this.#peek()) &&
+              (c === '.' || isDigit(c)))
+              this.#advance();
+            return this.#asTok(pos, 'number');
+          } else if (isLetter(c) || c === '_') {
+            while ((c = this.#peek()) &&
+              (c === '_' || isLetter(c) || isDigit(c)))
+              this.#advance();
+            const str = this.#sqlText.substring(pos, this.#pos + 1),
+              tok = tokenKeys[str.toUpperCase()];
+            return this.#asTok(pos,
+              tok < tokenKeys['string'] ?
+                str.toUpperCase() : 'litteral');
+          }
       }
     }
   }
 
   // begin parser
-  _parser() {
-    const _t = this,
-          next =  _t._next.bind(_t),
-          mkNode = (parent, constructor, children = [])=>{
-            return {
-              p:parent, type: constructor.name,
-              ch: children, end: false, tok:null}
-          }, mkEndNode = (node, tok = _t._curTok, vlu) => {
-            node.end = true;
-            node.tok = tok;
-            node.value = isFunction(vlu) ?
-             vlu : ()=>tok.str;
-          }, chAdd = (p, ch)=>{
-            if (isObject(ch)) {
-              if (p.ch.indexOf(ch) === -1) {
-                p.ch.push(ch);
-                ch.p = p;
-              }
-            } else if (Array.isArray(ch)) {
-              ch.forEach(c=>chAdd(p, c));
-            }
-            return ch
-          }, init = () => {
-            if (!_t._curTok) _t._curTok = _t._next();
-            const tok = _t._curTok;
-            return {tok, back: ()=>_t._rewind(tok)};
-          }, sqlsh = (fn) => {
-            return _sqlsh = (p) => {
-              try {return fn(p)} catch(e) {
-                if (!(e instanceof SyntaxError))
-                  throw e;
-              }
-            }
-          }, andSequence = (fncs)=>{
-            return _andSequence = (parent)=>{
-              const chs = [];
-              let ch, oks = 0;
-              for (const fn of fncs) {
-                if (!(ch = fn(parent)))
-                  break;
-                if (isObject(ch))
-                  chs.push(ch);
-                else if (Array.isArray(ch))
-                  chs.push(...ch);
-                ++oks;
-              }
-              if (oks === fncs.length)
-                return chs;
-            }
-          }, orSequence = (fncs) => {
-            return _orSequence = (parent) => {
-              const chs = [], {back} = init();
-              let ch;
-              for (const fn of fncs) {
-                if ((ch = fn(parent)))
-                  return ch;
-                back();
-              }
-              return false;
-            }
-          }, repetition = (fn) => {
-            return _repetition = (parent)=>{
-              const chs = []; let ch;
-              while ((ch = fn(parent))) {
-                if (isObject(ch))
-                  chs.push(ch);
-                else if (Array.isArray(ch))
-                  chs.push(...ch);
-                else if (ch === true)
-                  break; // prevent endless loop on optional
-              }
-              if (!chs.length)
-                err(`Förväntade ${fn.name}`);
-              return chs.length > 0 ? chs : null;
-            }
-          }, optional = (fn) => {
-            return _optional = (parent)=>{
-              let ch; const {back} = init();
-              if (ch = sqlsh(fn)(parent))
-                return ch;
-
-              back();
-              return  true;
-            }
-          }, terminal = (name) =>{
-            return _terminal = (parent)=> {
-              const tok = _t._curTok
-              if (tok?.tok === tokenKeys[name] ||
-                  tok?.str=== name)
-              {
-                const me = mkNode(parent, terminal)
-                mkEndNode(me, tok);
-                next();
-                return me;
-              }
-              err(`Förväntade '${name}'`, tok);
-            }
-          }, err = (msg, tok = _t._curTok)=> {
-            lastErr = new SyntaxError(
-              _t._genErrMsg(`Parsefel: ${msg}`, tok?.pos));
-            throw lastErr;
-          }, reErr = (msg, tok) => {
-            if (lastErr)
-              throw lastErr;
-            err(msg, tok);
-          }
-    let lastErr = null;
-
-    // stmts = {(selectStmt | updateStmt | insertStmt | deleteStmt), ';'} ;
-    const stmts = ()=>{
-      // reset
-      lastErr = null;
-      init();
-
-      let ch;
-
-      const root = mkNode(null, stmts);
-      const seq = [];
-      if (ch = repetition(
-          orSequence([
-            selectStmt, updateStmt,
-            insertStmt, deleteStmt
-          ])
-        )(root)
-      )
-        chAdd(root, ch);
-      else
-        err("Förväntade ett SELECT, UPDATE, INSERT eller DELETE statement.")
-      if (!terminal(';')(root)) err('Förväntade ;');
-      if (!root.ch.length) err('Kan inte parsa SQL uttrycket');
-      return root;
+  // begin parser helper functions
+  #mkNode(parent, constructor, children = []) {
+    return {
+      p: parent, type: constructor.name,
+      ch: children, end: false, tok: null
     }
-
-    //selectStmt        = 'SELECT', selectFieldList, 'FROM', selectTableList, [where],
-    //                  [groupBy], [having], [orderBy], [limit] ;
-    const selectStmt = (p)=>{
-      let ch;
-      const me = mkNode(p, selectStmt);
-
-      if (ch = andSequence([
-          sqlsh(terminal('SELECT')),
-          selectFieldList,
-          terminal('FROM'),
-          selectTableList,
-          optional(where),
-          optional(groupBy),
-          optional(having),
-          optional(orderBy),
-          optional(limit)
-        ])(me)
-      ) {
-        chAdd(me, ch);
-        return me;
+  }
+  #mkEndNode(node, tok = this.#curTok, vlu) {
+    node.end = true;
+    node.tok = tok;
+    node.value = isFunction(vlu) ?
+      vlu : () => tok.str;
+  }
+  #chAdd(p, ch) {
+    if (isObject(ch)) {
+      if (p.ch.indexOf(ch) === -1) {
+        p.ch.push(ch);
+        ch.p = p;
       }
+    } else if (Array.isArray(ch)) {
+      ch.forEach(c => this.#chAdd(p, c));
     }
-
-    //insertStmt        = 'INSERT', 'INTO', tableName, ['(', fieldList, ')'],
-    //                      'VALUES', '(', valueList, ')' ;
-    const insertStmt = (p) => {
-      let ch;
-      const me = mkNode(p, insertStmt);
-
-      if (ch = andSequence([
-          sqlsh(terminal('INSERT')),
-          terminal('INTO'),
-          tableName,
-          optional(
-            andSequence([
-              sqlsh(terminal('(')),
-              fieldList,
-              sqlsh(terminal(')'))
-            ])
-          ),
-          terminal('VALUES'),
-          terminal('('), valueList, terminal(')')
-        ])(me)
-      ) {
-        chAdd(me, ch);
-        return me;
-      }
-    }
-
-    // updateStmt        = 'UPDATE', tableName, 'SET', columnValues, [where] ;
-    const updateStmt = (p) => {
-      let ch;
-      const me = mkNode(p, updateStmt);
-
-      if (ch = andSequence([
-          sqlsh(terminal('UPDATE')),
-          tableName, terminal('SET'), columnValues,
-          optional(where),
-        ])(me)
-      ) {
-        chAdd(me, ch);
-        return me;
-      }
-    }
-
-    // deleteStmt        = 'DELETE', 'FROM', tableName, [where] ;
-    const deleteStmt = (p) => {
-      let ch;
-      const me = mkNode(p, deleteStmt);
-
-      if (ch = andSequence([
-          sqlsh(terminal('DELETE')),
-          terminal('FROM'),
-          tableName,
-          optional(where)
-        ])(me)
-      ) {
-        chAdd(me, ch);
-        return me;
-      }
-    }
-
-    //selectFieldList   = selectField, [{',' , selectField}] ;
-    const selectFieldList = (p) => {
-      let ch;
-      const me = mkNode(p, selectFieldList);
-      if (ch = andSequence([
-          selectField,
-          optional(
-            repetition(
-              andSequence([
-                sqlsh(terminal(',')),
-                selectField
-              ]
-            ))
-          )
-        ])(me)
-      ) {
-        chAdd(me, ch);
-        return me;
-      }
-      err('Förväntade fält');
-    }
-
-//  selectField  = (func | identifier ), [alias]
-//               | star ;
-    const selectField = (p) => {
-      let ch;
-      const me = mkNode(p, selectField);
-      if (ch = orSequence([
-          andSequence([
-            orSequence([
-              func,
-              fieldName
-            ]),
-            optional(alias),
-          ]),
-          star
-        ])(me)
-      ) {
-        chAdd(me, ch);
-        return me;
-      }
-    }
-
-    // star              = '*' ;
-    const star = (p) => {
-      let ch;
-      const me = mkNode(p, star);
-      if (ch = sqlsh(terminal('*'))(me)) {
-        chAdd(me, ch);
-        return me;
-      }
-    }
-
-    const identifierAsName = (p, fn) => {
-      let ch;
-      const me = mkNode(p, fn);
-      if (ch = identifier(me)) {
-        chAdd(me, ch);
-        return me;
-      }
-    }
-
-    // fieldName         = identifier ;
-    const fieldName = (p) => {
-      return identifierAsName(p, fieldName);
-    }
-
-    // func  = funcName, '(', ( fieldName | star ) , ')' ;
-    const func = (p) => {
-      let ch;
-      const me = mkNode(p, func);
-      if (ch = andSequence([
-          funcName,
-          sqlsh(terminal('(')),
-          orSequence([
-            fieldName,
-            star
-          ]),
-          sqlsh(terminal(')')),
-        ])(me)
-      ) {
-        chAdd(me, ch);
-        return me;
-      }
-    }
-
-    // funcName          = identifier ;
-    const funcName = (p) => {
-      return identifierAsName(p, funcName);
-    }
-
-    //alias             = 'AS', identifier ;
-    const alias = (p) => {
-      let ch;
-      const me = mkNode(p, alias);
-      if (ch = andSequence([
-          sqlsh(terminal('AS')),
-          identifier, optional(alias)
-        ])(me)
-      ) {
-        chAdd(me, ch);
-        return me;
-      }
-    }
-
-    //selectTableList   = selectTable, [{',', selectTable}] ;
-    const selectTableList = (p) => {
-      let ch;
-      const me = mkNode(p, selectTableList);
-      if (ch = andSequence([
-          selectTable,
-          optional(
-            repetition( andSequence([
-              sqlsh(terminal(',')), selectTable
-            ])
-            ),
-          me)
-        ])(me)
-      ) {
-        chAdd(me, ch);
-        return me;
-      }
-      err('Förväntade en tabell');
-    }
-
-    // selectTable       = tableName, [alias] ;
-    const selectTable = (p) => {
-      let ch;
-      const me = mkNode(p, selectTable);
-      if (ch = andSequence([
-          tableName,
-          optional(alias)
-        ])(me)
-      ) {
-        chAdd(me, ch);
-        return me;
-      }
-    }
-
-    // selectTable       = tableName, [alias] ;
-    const tableName = (p) => {
-      return identifierAsName(p, tableName);
-    }
-
-    //where             = 'WHERE', conditionOr,
-    const where = (p) => {
-      let ch;
-      const me = mkNode(p, where);
-      if (ch = andSequence([
-          terminal('WHERE'),
-          conditionOr,
-        ])(me)
-      ) {
-        chAdd(me, ch);
-        return me;
-      }
-    }
-
-    // conditionOr = conditionAnd, ['OR',  conditionAnd] ;
-    // conditionAnd = condition, ['AND', condition] ;
-    const conditionRouter = (p, caller, condFn, type) => {
-      let ch;
-      const me = mkNode(p, caller);
-      if (ch = andSequence([
-          condFn,
-          optional(
-            andSequence([
-              sqlsh(terminal(type)),
-              condFn
-            ])
-          )
-        ])(me)
-      ) {
-        chAdd(me, ch);
-        return me;
-      }
-    }
-
-    // conditionOr = conditionAnd, ['OR',  conditionAnd] ;
-    const conditionOr = (p) => {
-      return conditionRouter(
-        p, conditionOr, conditionAnd, 'OR');
-    }
-
-    // conditionAnd = condition, ['AND', condition] ;
-    const conditionAnd = (p) => {
-      return conditionRouter(
-        p, conditionAnd, condition, 'AND');
-    }
-
-    //condition         = fieldName, operator, value
-    //                  | fieldName, 'IN', '(', value, ')' ;
-    const condition = (p) => {
-      let ch;
-      const me = mkNode(p, condition);
-      if (ch = orSequence([
-            andSequence([fieldName, operator, value]),
-            andSequence([
-              fieldName, terminal('IN'),
-              terminal('('), valueList, terminal(')')
-            ])
-          ])(me)
-      ) {
-        chAdd(me, ch);
-        return me;
-      }
-      return ch
-    }
-
-    //operator          = '<>' | '<=' | '<' | '>=' | '>' | '=' ;
-    const operator = (p) => {
-      let ch;
-      const me = mkNode(p, operator);
-      const lt = sqlsh(terminal('<')),
-            gt = sqlsh(terminal('>')),
-            eq = sqlsh(terminal('=')),
-            ne = sqlsh(terminal('<>')),
-            lteq = sqlsh(terminal('<=')),
-            gteq = sqlsh(terminal('>='))
-
-      if (ch = orSequence([
-          lt, gt, eq, ne, lteq, gteq
-        ])(me)
-      ) {
-        chAdd(me, ch);
-        return me;
-      }
-      //err("Förväntade en OPERATOR") TODO enhance error reporting, this breaks
-    }
-
-    //value             = string | number ;
-    const value = (p) => {
-      let ch;
-      const me = mkNode(p, value);
-      if (ch = orSequence([string, number])(me)) {
-        chAdd(me, ch);
-        return me;
-      } else
-        err("Expected a value");
-    }
-
-    //groupBy  = 'GROUP', 'BY', showField, [{',', showField}] ;
-    const groupBy = (p) => {
-      let ch;
-      const me = mkNode(p, groupBy);
-      if (ch = andSequence([
-          terminal('GROUP'), terminal('BY'),
-          showField,
-          optional(
-            repetition(
-              andSequence([
-                sqlsh(terminal(',')), showField
-              ])
-            )
-          )
-        ])(me)
-      ) {
-        chAdd(me, ch);
-        return me;
-      }
-    }
-
-    // showField         = identifier, ['(', (identifier | star) ,')'] ;
-    const showField = (p) => {
-      let ch;
-      const me = mkNode(p, showField);
-      if (ch = andSequence([
-          identifier, optional(
-            andSequence([
-              sqlsh(terminal('(')),
-              orSequence([
-                identifier, star
-              ]),
-              sqlsh(terminal(')'))
-            ])
-          )
-        ])(me)
-      ) {
-        chAdd(me, ch);
-        return me;
-      }
-    }
-
-    //having            = 'HAVING', conditionOr  ;
-    const having = (p) => {
-      let ch;
-      const me = mkNode(p, having);
-      if (ch = andSequence([
-          terminal('HAVING'),
-          conditionOr
-        ])(me)
-      ) {
-        chAdd(me, ch);
-        return me;
-      }
-    }
-
-    // orderBy = 'ORDER', 'BY', orderByField, [{orderByField}] ;
-    const orderBy = (p) => {
-      let ch;
-      const me = mkNode(p, orderBy);
-      if (ch = andSequence([
-          terminal('ORDER'), terminal('BY'),
-          orderByField,
-          optional(
-            repetition(
-              andSequence([
-                sqlsh(terminal(',')), orderByField
-              ])
-            )
-          )
-        ])(me)
-      ) {
-        chAdd(me, ch);
-        return me;
-      }
-    }
-
-    //orderByField      = showField, [orderByASC | orderByDESC] ;
-    const orderByField = (p) => {
-      let ch;
-      const me = mkNode(p, orderByField);
-      if (ch = andSequence([
-          showField,
-          optional(
-            orSequence([
-              orderByASC,
-              orderByDESC
-            ])
-          )
-        ])(me)
-      ) {
-        chAdd(me, ch);
-        return me;
-      }
-    }
-
-    // orderByDirection  = 'DESC' | 'ASC' ;
-    const orderByDirection = (p, caller, type)=> {
-      let ch;
-      const me = mkNode(p, caller);
-      if (ch = sqlsh(terminal(type))(me)) {
-        chAdd(me, ch);
-        return me;
-      }
-    }
-
-    // orderByASC = 'ASC' ;
-    const orderByASC = (p) => {
-      return orderByDirection(p, orderByASC, 'ASC');
-    }
-
-    // orderByDESC = 'DESC' ;
-    const orderByDESC = (p) => {
-      return orderByDirection(p, orderByDESC, 'DESC');
-    }
-
-    //limit             = 'LIMIT', integer, [(',' | 'OFFSET'), integer] ;
-    const limit = (p) => {
-      let ch;
-      const me = mkNode(p, limit);
-      if (ch = andSequence([
-          terminal('LIMIT'), integer,
-          optional(
-            andSequence([
-              orSequence([
-                sqlsh(terminal(',')),
-                sqlsh(terminal('OFFSET'))
-              ]),
-              integer
-            ])
-          )
-        ])(me)
-      ) {
-        chAdd(me, ch);
-        return me;
-      }
-    }
-
-    //fieldList        = 'fieldName', [{',', fieldName}] ;
-    const fieldList = (p) => {
-      let ch;
-      const me = mkNode(p, fieldList);
-      if (ch = andSequence([
-          fieldName, optional(
-            repetition(
-              andSequence([
-                sqlsh(terminal(',')),
-                fieldName
-              ])
-            )
-          )
-        ])(me)
-      ) {
-        chAdd(me, ch);
-        return me;
-      }
-    }
-
-    //valueList         = value, [{',', value}] ;
-    const valueList = (p) => {
-      let ch;
-      const me = mkNode(p, valueList);
-      if (ch = andSequence([
-          value, optional(
-            repetition(
-              andSequence([
-                sqlsh(terminal(',')),
-                value
-              ])
-            )
-          )
-        ])(me)
-      ) {
-        chAdd(me, ch);
-        return me;
-      }
-    }
-
-    //columnValues      = fieldName, '=', value, [{',', fieldName, '=', value}] ;
-    const columnValues = (p) => {
-      let ch;
-      const me = mkNode(p, columnValues);
-      if (ch = andSequence([
-          fieldName,
-          sqlsh(terminal('=')),
-          value,
-          optional(
-            repetition(
-              andSequence([
-                sqlsh(terminal(',')),
-                fieldName,
-                sqlsh(terminal('=')),
-                value
-              ])
-            )
-          )
-        ])(me)
-      ) {
-        chAdd(me, ch);
-        return me;
-      }
-    }
-
-    //identifier = litteral ;
-    const identifier = (p) => {
-      let ch;
-      const me = mkNode(p, identifier);
-      if (ch = litteral(me)) {
-        chAdd(me, ch);
-        return me;
-      }
-    }
-
-    // litteral = ('_'  | letter), [{letter | digit | '_' }]
-    const litteral = (p) => {
-      let {tok} = init();
-      const me = mkNode(p, litteral);
-      if (tok.tok === tokenKeys['litteral']) {
-        mkEndNode(me, tok);
-        next();
-        return me;
-      }
-    }
-
-    //string = "'", [ non "'" ], "'"
-    //       | '"', [ non '"' ], '"' ;
-    const string = (p) => {
-      // qoutes handled in lexer
-      let {tok} = init();
-      const me = mkNode(p, string);
-      if (tok.tok === tokenKeys['string']) {
-        mkEndNode(me, tok);
-        next();
-        return me;
-      }
-    }
-
-    //number = digit, [{digit}], ['.', [{digit}]] ;
-    const number = (p) => {
-      let {tok} = init();
-      const me = mkNode(p, number);
-      if (tok.tok === tokenKeys['number']) {
-        mkEndNode(me, tok, ()=>+tok.str);
-        next();
-        return me;
-      }
-    }
-
-    //integer = digit, [{digit}] ;
-    const integer = (p) => {
-      let {tok} = init();
-      const me = mkNode(p, integer);
-      if (tok.tok === tokenKeys['number'] &&
-          tok.str.indexOf('.') === -1)
-      {
-        mkEndNode(me, tok, ()=>+tok.str);
-        next();
-        return me;
-      }
-    }
-    // handle in lexer
-    //letter = 'A' | 'a' to 'Z' | 'z' ;
-    //digit = '0' to '9' ;
-
-    return stmts;
+    return ch
+  }
+  #init() {
+    if (!this.#curTok) this.#curTok = this.#next();
+    const tok = this.#curTok;
+    return { tok, back: () => this.#rewind(tok) };
   }
 
+  #squelsh(fn) {
+    return _squelsh = (p) => {
+      try { return fn.call(this, p) } catch (e) {
+        if (!(e instanceof SyntaxError))
+          throw e;
+      }
+    }
+  }
+
+  #andSequence = (fncs) => {
+    return _andSequence = (parent) => {
+      const chs = [];
+      let ch, oks = 0;
+      for (const fn of fncs) {
+        if (!(ch = fn.call(this, parent)))
+          break;
+        if (isObject(ch))
+          chs.push(ch);
+        else if (Array.isArray(ch))
+          chs.push(...ch);
+        ++oks;
+      }
+      if (oks === fncs.length)
+        return chs;
+    }
+  }
+  #orSequence(fncs) {
+    return _orSequence = (parent) => {
+      const chs = [], { back } = this.#init();
+      let ch;
+      for (const fn of fncs) {
+        if ((ch = fn.call(this, parent)))
+          return ch;
+        back();
+      }
+      return false;
+    }
+  }
+
+  #repetition(fn) {
+    return _repetition = (parent) => {
+      const chs = []; let ch;
+      while ((ch = fn.call(this, parent))) {
+        if (isObject(ch))
+          chs.push(ch);
+        else if (Array.isArray(ch))
+          chs.push(...ch);
+        else if (ch === true)
+          break; // prevent endless loop on this.#optional
+      }
+      if (!chs.length)
+        this.#err(`Förväntade ${fn.name}`);
+      return chs.length > 0 ? chs : null;
+    }
+  }
+
+  #optional(fn) {
+    return _optional = (parent) => {
+      let ch; const { back } = this.#init();
+      if (ch = this.#squelsh(fn)(parent))
+        return ch;
+
+      back();
+      return true;
+    }
+  }
+  #terminal(name, expect = false) {
+    return _terminal = (parent) => {
+      const tok = this.#curTok
+      if (tok?.tok === tokenKeys[name] ||
+        tok?.str === name) {
+        const me = this.#mkNode(parent, this.#terminal)
+        this.#mkEndNode(me, tok);
+        this.#next();
+        return me;
+      }
+      if (expect)
+        this.#err(`Förväntade '${name}'`, tok);
+    }
+  }
+
+  #err(msg, tok = this.#curTok) {
+    throw new SyntaxError(
+      this.#genErrMsg(`Parsefel: ${msg}`, tok?.pos));
+  }
+
+  // begin recursive decent functions
+
+  // stmts = {(selectStmt | updateStmt | insertStmt | deleteStmt), ';'} ;
+  #stmts() {
+    // reset
+    this.#init();
+
+    let ch;
+
+    const root = this.#mkNode(null, this.#stmts);
+    const seq = [];
+    if (ch = this.#repetition(
+      this.#orSequence([
+        this.#selectStmt,
+        this.#updateStmt,
+        this.#insertStmt,
+        this.#deleteStmt
+      ])
+    )(root)
+    )
+      this.#chAdd(root, ch);
+    else
+      this.#err("Förväntade ett SELECT, UPDATE, INSERT eller DELETE statement.")
+    this.#terminal(';', true)(root)
+    if (!root.ch.length)
+      this.#err('Kan inte parsa SQL uttrycket');
+    return root;
+  }
+
+  //selectStmt        = 'SELECT', selectFieldList, 'FROM', selectTableList, [where],
+  //                  [groupBy], [having], [orderBy], [limit] ;
+  #selectStmt(p) {
+    let ch;
+    const me = this.#mkNode(p, this.#selectStmt);
+
+    if (ch = this.#andSequence([
+      this.#terminal('SELECT'),
+      this.#selectFieldList,
+      this.#terminal('FROM', true),
+      this.#selectTableList,
+      this.#optional(this.#where),
+      this.#optional(this.#groupBy),
+      this.#optional(this.#having),
+      this.#optional(this.#orderBy),
+      this.#optional(this.#limit)
+    ])(me)
+    ) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  //insertStmt        = 'INSERT', 'INTO', tableName, ['(', fieldList, ')'],
+  //                      'VALUES', '(', valueList, ')' ;
+  #insertStmt(p) {
+    let ch;
+    const me = this.#mkNode(p, this.#insertStmt);
+
+    if (ch = this.#andSequence([
+      this.#terminal('INSERT'),
+      this.#terminal('INTO', true),
+      this.#tableName,
+      this.#optional(
+        this.#andSequence([
+          this.#terminal('('),
+          this.#fieldList,
+          this.#terminal(')', true)
+        ])
+      ),
+      this.#terminal('VALUES', true),
+      this.#terminal('(', true),
+      this.#valueList,
+      this.#terminal(')', true)
+    ])(me)
+    ) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  // updateStmt        = 'UPDATE', tableName, 'SET', columnValues, [where] ;
+  #updateStmt(p) {
+    let ch;
+    const me = this.#mkNode(p, this.#updateStmt);
+
+    if (ch = this.#andSequence([
+      this.#terminal('UPDATE'),
+      this.#tableName,
+      this.#terminal('SET', true),
+      this.#columnValues,
+      this.#optional(this.#where),
+    ])(me)
+    ) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  // deleteStmt        = 'DELETE', 'FROM', tableName, [where] ;
+  #deleteStmt(p) {
+    let ch;
+    const me = this.#mkNode(p, this.#deleteStmt);
+
+    if (ch = this.#andSequence([
+      this.#terminal('DELETE'),
+      this.#terminal('FROM', true),
+      this.#tableName,
+      this.#optional(this.#where)
+    ])(me)
+    ) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  //selectFieldList   = selectField, [{',' , selectField}] ;
+  #selectFieldList(p) {
+    let ch;
+    const me = this.#mkNode(p, this.#selectFieldList);
+    if (ch = this.#andSequence([
+      this.#selectField,
+      this.#optional(
+        this.#repetition(
+          this.#andSequence([
+            this.#terminal(','),
+            this.#selectField
+          ]
+          ))
+      )
+    ])(me)
+    ) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+    this.#err('Förväntade fält');
+  }
+
+  //  selectField  = (func | identifier ), [alias]
+  //               | star ;
+  #selectField = (p) => {
+    let ch;
+    const me = this.#mkNode(p, this.#selectField);
+    if (ch = this.#orSequence([
+      this.#andSequence([
+        this.#orSequence([
+          this.#func,
+          this.#fieldName
+        ]),
+        this.#optional(this.#alias),
+      ]),
+      this.#star
+    ])(me)
+    ) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  // star              = '*' ;
+  #star(p) {
+    let ch;
+    const me = this.#mkNode(p, this.#star);
+    if (ch = this.#terminal('*')(me)) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  #identifierAsName(p, fn) {
+    let ch;
+    const me = this.#mkNode(p, fn);
+    if (ch = this.#identifier(me)) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  // fieldName         = identifier ;
+  #fieldName(p) {
+    return this.#identifierAsName(p, this.#fieldName);
+  }
+
+  // func  = funcName, '(', ( fieldName | star ) , ')' ;
+  #func(p) {
+    let ch;
+    const me = this.#mkNode(p, this.#func);
+    if (ch = this.#andSequence([
+      this.#funcName,
+      this.#terminal('('),
+      this.#orSequence([
+        this.#fieldName,
+        this.#star
+      ]),
+      this.#terminal(')'),
+    ])(me)
+    ) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  // funcName          = identifier ;
+  #funcName(p) {
+    return this.#identifierAsName(p, this.#funcName);
+  }
+
+  //alias             = 'AS', identifier ;
+  #alias(p) {
+    let ch;
+    const me = this.#mkNode(p, this.#alias);
+    if (ch = this.#andSequence([
+      this.#terminal('AS'),
+      this.#identifier,
+      this.#optional(this.#alias)
+    ])(me)
+    ) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  //selectTableList   = selectTable, [{',', selectTable}] ;
+  #selectTableList(p) {
+    let ch;
+    const me = this.#mkNode(p, this.#selectTableList);
+    if (ch = this.#andSequence([
+      this.#selectTable,
+      this.#optional(
+        this.#repetition(
+          this.#andSequence([
+            this.#terminal(','),
+            this.#selectTable
+          ])
+        ),
+        me)
+    ])(me)
+    ) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+    this.#err('Förväntade en tabell');
+  }
+
+  // selectTable       = tableName, [alias] ;
+  #selectTable(p) {
+    let ch;
+    const me = this.#mkNode(p, this.#selectTable);
+    if (ch = this.#andSequence([
+      this.#tableName,
+      this.#optional(this.#alias)
+    ])(me)
+    ) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  // selectTable       = tableName, [alias] ;
+  #tableName(p) {
+    return this.#identifierAsName(p, this.#tableName);
+  }
+
+  //where = 'WHERE', conditionOr,
+  #where(p) {
+    let ch;
+    const me = this.#mkNode(p, this.#where);
+    if (ch = this.#andSequence([
+      this.#terminal('WHERE'),
+      this.#conditionOr,
+    ])(me)
+    ) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  // conditionOr = conditionAnd, ['OR',  conditionAnd] ;
+  // conditionAnd = condition, ['AND', condition] ;
+  #conditionRouter(p, caller, condFn, type) {
+    let ch;
+    const me = this.#mkNode(p, caller);
+    if (ch = this.#andSequence([
+      condFn,
+      this.#optional(
+        this.#andSequence([
+          this.#terminal(type),
+          condFn
+        ])
+      )
+    ])(me)
+    ) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  // conditionOr = conditionAnd, ['OR',  conditionAnd] ;
+  #conditionOr(p) {
+    return this.#conditionRouter(
+      p, this.#conditionOr, this.#conditionAnd, 'OR');
+  }
+
+  // conditionAnd = condition, ['AND', condition] ;
+  #conditionAnd(p) {
+    return this.#conditionRouter(
+      p, this.#conditionAnd, this.#condition, 'AND');
+  }
+
+  //condition         = fieldName, operator, value
+  //                  | fieldName, 'IN', '(', value, ')' ;
+  #condition(p) {
+    let ch;
+    const me = this.#mkNode(p, this.#condition);
+    if (ch = this.#orSequence([
+      this.#andSequence([
+        this.#fieldName,
+        this.#operator,
+        this.#value
+      ]),
+      this.#andSequence([
+        this.#fieldName,
+        this.#terminal('IN'),
+        this.#terminal('('),
+        this.#valueList,
+        this.#terminal(')')
+      ])
+    ])(me)
+    ) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  //operator          = '<>' | '<=' | '<' | '>=' | '>' | '=' ;
+  #operator(p) {
+    let ch;
+    const me = this.#mkNode(p, this.#operator);
+    const lt = this.#terminal('<'),
+      gt = this.#terminal('>'),
+      eq = this.#terminal('='),
+      ne = this.#terminal('<>'),
+      lteq = this.#terminal('<='),
+      gteq = this.#terminal('>=');
+
+    if (ch = this.#orSequence([
+      lt, gt, eq, ne, lteq, gteq
+    ])(me)
+    ) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  //value             = string | number ;
+  #value(p) {
+    let ch;
+    const me = this.#mkNode(p, this.#value);
+    if (ch = this.#orSequence([
+      this.#string,
+      this.#number
+    ])(me)) {
+      this.#chAdd(me, ch);
+      return me;
+    } else
+      this.#err("Expected a value");
+  }
+
+  //groupBy  = 'GROUP', 'BY', showField, [{',', showField}] ;
+  #groupBy(p) {
+    let ch;
+    const me = this.#mkNode(p, this.#groupBy);
+    if (ch = this.#andSequence([
+      this.#terminal('GROUP'),
+      this.#terminal('BY', true),
+      this.#showField,
+      this.#optional(
+        this.#repetition(
+          this.#andSequence([
+            this.#terminal(','),
+            this.#showField
+          ])
+        )
+      )
+    ])(me)
+    ) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  // showField         = identifier, ['(', (identifier | star) ,')'] ;
+  #showField(p) {
+    let ch;
+    const me = this.#mkNode(p, this.#showField);
+    if (ch = this.#andSequence([
+      this.#identifier,
+      this.#optional(
+        this.#andSequence([
+          this.#terminal('('),
+          this.#orSequence([
+            this.#identifier,
+            this.#star
+          ]),
+          this.#terminal(')', true)
+        ])
+      )
+    ])(me)
+    ) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  //having            = 'HAVING', conditionOr  ;
+  #having(p) {
+    let ch;
+    const me = this.#mkNode(p, this.#having);
+    if (ch = this.#andSequence([
+      this.#terminal('HAVING'),
+      this.#conditionOr
+    ])(me)
+    ) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  // orderBy = 'ORDER', 'BY', orderByField, [{orderByField}] ;
+  #orderBy(p) {
+    let ch;
+    const me = this.#mkNode(p, this.#orderBy);
+    if (ch = this.#andSequence([
+      this.#terminal('ORDER'),
+      this.#terminal('BY', true),
+      this.#orderByField,
+      this.#optional(
+        this.#repetition(
+          this.#andSequence([
+            this.#terminal(','),
+            this.#orderByField
+          ])
+        )
+      )
+    ])(me)
+    ) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  //orderByField      = showField, [orderByASC | orderByDESC] ;
+  #orderByField(p) {
+    let ch;
+    const me = this.#mkNode(p, this.#orderByField);
+    if (ch = this.#andSequence([
+      this.#showField,
+      this.#optional(
+        this.#orSequence([
+          this.#orderByASC,
+          this.#orderByDESC
+        ])
+      )
+    ])(me)
+    ) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  // orderByDirection  = 'DESC' | 'ASC' ;
+  #orderByDirection(p, caller, type) {
+    let ch;
+    const me = this.#mkNode(p, caller);
+    if (ch = this.#terminal(type)(me)) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  // orderByASC = 'ASC' ;
+  #orderByASC(p) {
+    return this.#orderByDirection(p, this.#orderByASC, 'ASC');
+  }
+
+  // orderByDESC = 'DESC' ;
+  #orderByDESC(p) {
+    return this.#orderByDirection(p, this.#orderByDESC, 'DESC');
+  }
+
+  //limit             = 'LIMIT', integer, [(',' | 'OFFSET'), integer] ;
+  #limit(p) {
+    let ch;
+    const me = this.#mkNode(p, this.#limit);
+    if (ch = this.#andSequence([
+      this.#terminal('LIMIT'),
+      this.#integer,
+      this.#optional(
+        this.#andSequence([
+          this.#orSequence([
+            this.#terminal(','),
+            this.#terminal('OFFSET')
+          ]),
+          this.#integer
+        ])
+      )
+    ])(me)
+    ) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  #listRouter(p, caller, type) {
+    let ch;
+    const me = this.#mkNode(p, caller);
+    if (ch = this.#andSequence([
+      type,
+      this.#optional(
+        this.#repetition(
+          this.#andSequence([
+            this.#terminal(','),
+            type
+          ])
+        )
+      )
+    ])(me)
+    ) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  //fieldList        = 'fieldName', [{',', fieldName}] ;
+  #fieldList(p) {
+    return this.#listRouter(p, this.#fieldList, this.#fieldName);
+  }
+
+  //valueList         = value, [{',', value}] ;
+  #valueList(p) {
+    return this.#listRouter(p, this.#valueList, this.#value);
+  }
+
+  //columnValues      = fieldName, '=', value, [{',', fieldName, '=', value}] ;
+  #columnValues(p) {
+    let ch;
+    const me = this.#mkNode(p, this.#columnValues);
+    if (ch = this.#andSequence([
+      this.#fieldName,
+      this.#terminal('='),
+      this.#value,
+      this.#optional(
+        this.#repetition(
+          this.#andSequence([
+            this.#terminal(','),
+            this.#fieldName,
+            this.#terminal('='),
+            this.#value
+          ])
+        )
+      )
+    ])(me)
+    ) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  //identifier = litteral ;
+  #identifier(p) {
+    let ch;
+    const me = this.#mkNode(p, this.#identifier);
+    if (ch = this.#litteral(me)) {
+      this.#chAdd(me, ch);
+      return me;
+    }
+  }
+
+  // litteral = ('_'  | letter), [{letter | digit | '_' }]
+  #litteral(p) {
+    let { tok } = this.#init();
+    const me = this.#mkNode(p, this.#litteral);
+    if (tok.tok === tokenKeys['litteral']) {
+      this.#mkEndNode(me, tok);
+      this.#next();
+      return me;
+    }
+  }
+
+  //string = "'", [ non "'" ], "'"
+  //       | '"', [ non '"' ], '"' ;
+  #string(p) {
+    // qoutes handled in lexer
+    let { tok } = this.#init();
+    const me = this.#mkNode(p, this.#string);
+    if (tok.tok === tokenKeys['string']) {
+      this.#mkEndNode(me, tok);
+      this.#next();
+      return me;
+    }
+  }
+
+  //number = digit, [{digit}], ['.', [{digit}]] ;
+  #number(p) {
+    let { tok } = this.#init();
+    const me = this.#mkNode(p, this.#number);
+    if (tok.tok === tokenKeys['number']) {
+      this.#mkEndNode(me, tok, () => +tok.str);
+      this.#next();
+      return me;
+    }
+  }
+
+  //integer = digit, [{digit}] ;
+  #integer(p) {
+    let { tok } = this.#init();
+    const me = this.#mkNode(p, this.#integer);
+    if (tok.tok === tokenKeys['number'] &&
+      tok.str.indexOf('.') === -1) {
+      this.#mkEndNode(me, tok, () => +tok.str);
+      this.#next();
+      return me;
+    }
+  }
+
+  // handle these in lexer
+  //letter = 'A' | 'a' to 'Z' | 'z' ;
+  //digit = '0' to '9' ;
+
+
+  // begin AST clean up
   // remove all terminals if they are not of concern hinseforth
   #cleanTree(root) {
     const walk = (ast) => {
@@ -931,8 +956,7 @@ class Parser {
       // all below = are keywords and separators
       // see: tokens and keyWdNotCleaned
       if (ast.end && ast.tok.tok < tokenKeys['='] &&
-          !keywdNotCleaned[ast.tok.str])
-      {
+        !keywdNotCleaned[ast.tok.str]) {
         return;
       }
 
@@ -944,7 +968,7 @@ class Parser {
   }
 
   #flattenTree(root) {
-    const byPass = (byPassNode, shiftType)=>{
+    const byPass = (byPassNode, shiftType) => {
       const shiftIn = byPassNode.ch[0];
       byPassNode.p.ch[
         byPassNode.p.ch.indexOf(byPassNode)] = shiftIn;
@@ -959,22 +983,22 @@ class Parser {
       cst.ch.forEach(walk);
 
       switch (cst.type) {
-      case 'identifier':  case 'tableName':
-      case 'fieldName':   case 'funcName':
-      case 'operator':    case 'alias':
-      case 'star':  // fallthrough
-        return byPass(cst, true);
-      case 'value':
-        return byPass(cst, false);
-      case 'func':
-        // move funcName tok into func and remove funcName
-        const funcName = cst.ch.find(c=>c.type==='funcName');
-        cst.tok = funcName.tok;
-        cst.ch.splice(cst.ch.indexOf(funcName),1);
-        break;
-      case 'columnValues':
-        // remove = from children
-        cst.ch = cst.ch.filter(c=>c.type!=='terminal');
+        case '#identifier': case '#tableName':
+        case '#fieldName': case '#funcName':
+        case '#operator': case '#alias':
+        case '#star':  // fallthrough
+          return byPass(cst, true);
+        case '#value':
+          return byPass(cst, false);
+        case '#func':
+          // move funcName tok into func and remove funcName
+          const funcName = cst.ch.find(c => c.type === '#funcName');
+          cst.tok = funcName.tok;
+          cst.ch.splice(cst.ch.indexOf(funcName), 1);
+          break;
+        case '#columnValues':
+          // remove = from children
+          cst.ch = cst.ch.filter(c => c.type !== '#terminal');
       }
 
       return cst;
@@ -983,4 +1007,4 @@ class Parser {
   }
 }
 
-module.exports = {Parser, tokens, tokenKeys};
+module.exports = { Parser, tokens, tokenKeys };

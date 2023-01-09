@@ -1,7 +1,9 @@
 const Parser = require('../src/parser.js').Parser;
 const console = require('console');
 
-
+// switch these to print AST tree
+const debug = ()=>null;
+//const debug = console.log;
 
 describe('Sucessfull parser queries', ()=>{
   test('Should succeed', ()=>{
@@ -241,143 +243,143 @@ describe('Test AST tree', ()=>{
       LIMIT 10, 20
     ;`);
     const t = filterTree(tree);
-    console.log('----------')
-    console.log(JSON.stringify(t,null,2));
+    debug('----------')
+    debug(JSON.stringify(t,null,2));
     expect(t).toMatchObject({
-      type:'stmts',ch:[{
-        type:'selectStmt', ch:[{
-          type:'selectFieldList', ch:[{
-            type:'selectField', ch:[{
-              type:'func', tok:{str:'MIN'}, ch:[{
-                type:'star', tok:{str:'*'}
+      type:'#stmts',ch:[{
+        type:'#selectStmt', ch:[{
+          type:'#selectFieldList', ch:[{
+            type:'#selectField', ch:[{
+              type:'#func', tok:{str:'MIN'}, ch:[{
+                type:'#star', tok:{str:'*'}
               }]
             },{
-              type:'alias', tok:{str:'a'}
+              type:'#alias', tok:{str:'a'}
             }]
           },{
-            type:'selectField', ch:[{
-              type:'fieldName', tok:{str:'b'}
+            type:'#selectField', ch:[{
+              type:'#fieldName', tok:{str:'b'}
             }]
           },{
-            type:'selectField',ch:[{
-              type:'star', tok:{str:'*'}
+            type:'#selectField',ch:[{
+              type:'#star', tok:{str:'*'}
             }]
           }]
         },{
-          type:'selectTableList', ch:[{
-            type: 'selectTable', ch:[{
-              type: 'tableName', tok:{str:'tbl'}
+          type:'#selectTableList', ch:[{
+            type:'#selectTable', ch:[{
+              type:'#tableName', tok:{str:'tbl'}
             },{
-              type: 'alias', tok:{str:'t1'}
+              type:'#alias', tok:{str:'t1'}
             }]
           },{
-            type:'selectTable', ch:[{
-              type: 'tableName', tok:{str:'t2'}
+            type:'#selectTable', ch:[{
+              type:'#tableName', tok:{str:'t2'}
             }]
           }]
         },{
-          type:'where', ch:[{
-            type:'conditionOr', ch:[{
-              type:'conditionAnd', ch:[{
-                type:'condition', ch:[{
-                  type:'fieldName', tok:{str:'a'},
+          type:'#where', ch:[{
+            type:'#conditionOr', ch:[{
+              type:'#conditionAnd', ch:[{
+                type:'#condition', ch:[{
+                  type:'#fieldName', tok:{str:'a'},
                 },{
-                  type:'operator', tok:{str:'='}
+                  type:'#operator', tok:{str:'='}
                 },{
-                  type:'number', tok:{str:'1'}
+                  type:'#number', tok:{str:'1'}
                 }]
               },{
-                type:'condition', ch:[{
-                  type:'fieldName', tok:{str:'b'}
+                type:'#condition', ch:[{
+                  type:'#fieldName', tok:{str:'b'}
                 },{
-                  type:'operator', tok:{str:'<>'}
+                  type:'#operator', tok:{str:'<>'}
                 },{
-                  type:'string', tok:{str:'s'}
+                  type:'#string', tok:{str:'s'}
                 }]
               }]
             },{
-              type:'conditionAnd', ch:[{
-                type:'condition', ch:[{
-                  type:'fieldName', tok:{str:'c'}
+              type:'#conditionAnd', ch:[{
+                type:'#condition', ch:[{
+                  type:'#fieldName', tok:{str:'c'}
                 },{
-                  type:'terminal', tok:{str:'IN'}
+                  type:'#terminal', tok:{str:'IN'}
                 },{
-                  type:'valueList', ch:[{
-                    type:'number', tok:{str:'1'}
+                  type:'#valueList', ch:[{
+                    type:'#number', tok:{str:'1'}
                   },{
-                    type:'number', tok:{str:'2'}
+                    type:'#number', tok:{str:'2'}
                   }]
                 }]
               }]
             }]
           }]
         },{
-          type: 'groupBy', ch:[{
-            type:'showField', ch:[{
-              type:'identifier', tok:{str:'MIN'}
+          type:'#groupBy', ch:[{
+            type:'#showField', ch:[{
+              type:'#identifier', tok:{str:'MIN'}
             },{
-              type:'star', tok:{str:'*'}
+              type:'#star', tok:{str:'*'}
             }]
           },{
-            type:'showField', ch:[{
-              type: 'identifier', tok:{str:'_'}
+            type:'#showField', ch:[{
+              type:'#identifier', tok:{str:'_'}
             }]
           }]
         },{
-          type:'having', ch:[{
-            type:'conditionOr', ch:[{
-              type:'conditionAnd', ch:[{
-                type:'condition', ch:[{
-                  type:'fieldName', tok:{str:'_a'},
+          type:'#having', ch:[{
+            type:'#conditionOr', ch:[{
+              type:'#conditionAnd', ch:[{
+                type:'#condition', ch:[{
+                  type:'#fieldName', tok:{str:'_a'},
                 },{
-                  type:'operator', tok:{str:'<='}
+                  type:'#operator', tok:{str:'<='}
                 },{
-                  type:'number', tok:{str:'0'}
+                  type:'#number', tok:{str:'0'}
                 }]
               }]
             },{
-              type:'conditionAnd',ch:[{
-                type:'condition', ch:[{
-                  type:'fieldName', tok:{str:'b'}
+              type:'#conditionAnd',ch:[{
+                type:'#condition', ch:[{
+                  type:'#fieldName', tok:{str:'b'}
                 },{
-                  type:'operator', tok:{str:'>='}
+                  type:'#operator', tok:{str:'>='}
                 },{
-                  type:'string', tok:{str:'r'}
+                  type:'#string', tok:{str:'r'}
                 }]
               }]
             }]
           }]
         },{
-          type:'orderBy',ch:[{
-            type:'orderByField',ch:[{
-              type:'showField',ch:[{
-                type:'identifier',tok:{str:'MAX'}
+          type:'#orderBy',ch:[{
+            type:'#orderByField',ch:[{
+              type:'#showField',ch:[{
+                type:'#identifier',tok:{str:'MAX'}
               },{
-                type:'identifier',tok:{str:'b'}
+                type:'#identifier',tok:{str:'b'}
               }]
             }]
           },{
-            type:'orderByField',ch:[{
-              type:'showField',ch:[{
-                type:'identifier',tok:{str:'b'}
+            type:'#orderByField',ch:[{
+              type:'#showField',ch:[{
+                type:'#identifier',tok:{str:'b'}
               }]
             },{
-              type:'orderByDESC'
+              type:'#orderByDESC'
             }]
           },{
-            type:'orderByField',ch:[{
-              type:'showField',ch:[{
-                type:'identifier',tok:{str:'a'}
+            type:'#orderByField',ch:[{
+              type:'#showField',ch:[{
+                type:'#identifier',tok:{str:'a'}
               }]
             },{
-              type:'orderByASC'
+              type:'#orderByASC'
             }]
           }]
         },{
-          type:'limit',ch:[{
-            type:'integer',tok:{str:'10'}
+          type:'#limit',ch:[{
+            type:'#integer',tok:{str:'10'}
           },{
-            type:'integer',tok:{str:'20'}
+            type:'#integer',tok:{str:'20'}
           }]
         }]
       }]
@@ -390,23 +392,23 @@ describe('Test AST tree', ()=>{
       INSERT INTO tbl (a,b) VALUES (1,'23\\'')
     ;`);
     const t = filterTree(tree);
-    console.log('----------')
-    console.log(JSON.stringify(t,null,2));
+    debug('----------')
+    debug(JSON.stringify(t,null,2));
     expect(t).toMatchObject({
-      type:'stmts',ch:[{
-        type:'insertStmt', ch:[{
-          type:'tableName', tok:{str:'tbl'}
+      type:'#stmts',ch:[{
+        type:'#insertStmt', ch:[{
+          type:'#tableName', tok:{str:'tbl'}
         },{
-          type:'fieldList',ch:[{
-            type:'fieldName',tok:{str:'a'}
+          type:'#fieldList',ch:[{
+            type:'#fieldName',tok:{str:'a'}
           },{
-            type:'fieldName',tok:{str:'b'}
+            type:'#fieldName',tok:{str:'b'}
           }]
         },{
-          type:'valueList',ch:[{
-            type:'number',tok:{str:'1'}
+          type:'#valueList',ch:[{
+            type:'#number',tok:{str:'1'}
           },{
-            type:'string',tok:{str:'23\''}
+            type:'#string',tok:{str:'23\''}
           }]
         }]
       }]
@@ -419,40 +421,40 @@ describe('Test AST tree', ()=>{
       UPDATE tbl SET a=34,b="75" WHERE a<1 AND b>'23\\''
     ;`);
     const t = filterTree(tree);
-    console.log('----------')
-    console.log(JSON.stringify(t,null,2));
+    debug('----------')
+    debug(JSON.stringify(t,null,2));
     expect(t).toMatchObject({
-      type:'stmts',ch:[{
-        type:'updateStmt', ch:[{
-          type:'tableName', tok:{str:'tbl'}
+      type:'#stmts',ch:[{
+        type:'#updateStmt', ch:[{
+          type:'#tableName', tok:{str:'tbl'}
         },{
-          type:'columnValues',ch:[{
-            type:'fieldName',tok:{str:'a'}
+          type:'#columnValues',ch:[{
+            type:'#fieldName',tok:{str:'a'}
           },{
-            type:'number',tok:{str:'34'}
+            type:'#number',tok:{str:'34'}
           },{
-            type:'fieldName',tok:{str:'b'}
+            type:'#fieldName',tok:{str:'b'}
           },{
-            type:'string',tok:{str:'75'}
+            type:'#string',tok:{str:'75'}
           }]
         },{
-          type:'where',ch:[{
-            type:'conditionOr',ch:[{
-              type:'conditionAnd',ch:[{
-                type:'condition',ch:[{
-                  type:'fieldName',tok:{str:'a'}
+          type:'#where',ch:[{
+            type:'#conditionOr',ch:[{
+              type:'#conditionAnd',ch:[{
+                type:'#condition',ch:[{
+                  type:'#fieldName',tok:{str:'a'}
                 },{
-                  type:'operator',tok:{str:'<'}
+                  type:'#operator',tok:{str:'<'}
                 },{
-                  type:'number',tok:{str:'1'}
+                  type:'#number',tok:{str:'1'}
                 }]
               },{
-                type:'condition',ch:[{
-                  type:'fieldName',tok:{str:'b'}
+                type:'#condition',ch:[{
+                  type:'#fieldName',tok:{str:'b'}
                 },{
-                  type:'operator',tok:{str:'>'}
+                  type:'#operator',tok:{str:'>'}
                 },{
-                  type:'string',tok:{str:'23\''}
+                  type:'#string',tok:{str:'23\''}
                 }]
               }]
             }]
@@ -468,30 +470,30 @@ describe('Test AST tree', ()=>{
       DELETE FROM tbl WHERE a<1 AND b>'23\\''
     ;`);
     const t = filterTree(tree);
-    console.log('----------')
-    console.log(JSON.stringify(t,null,2));
+    debug('----------')
+    debug(JSON.stringify(t,null,2));
     expect(t).toMatchObject({
-      type:'stmts',ch:[{
-        type:'deleteStmt', ch:[{
-          type:'tableName', tok:{str:'tbl'}
+      type:'#stmts',ch:[{
+        type:'#deleteStmt', ch:[{
+          type:'#tableName', tok:{str:'tbl'}
         },{
-          type:'where',ch:[{
-            type:'conditionOr',ch:[{
-              type:'conditionAnd',ch:[{
-                type:'condition',ch:[{
-                  type:'fieldName',tok:{str:'a'}
+          type:'#where',ch:[{
+            type:'#conditionOr',ch:[{
+              type:'#conditionAnd',ch:[{
+                type:'#condition',ch:[{
+                  type:'#fieldName',tok:{str:'a'}
                 },{
-                  type:'operator',tok:{str:'<'}
+                  type:'#operator',tok:{str:'<'}
                 },{
-                  type:'number',tok:{str:'1'}
+                  type:'#number',tok:{str:'1'}
                 }]
               },{
-                type:'condition',ch:[{
-                  type:'fieldName',tok:{str:'b'}
+                type:'#condition',ch:[{
+                  type:'#fieldName',tok:{str:'b'}
                 },{
-                  type:'operator',tok:{str:'>'}
+                  type:'#operator',tok:{str:'>'}
                 },{
-                  type:'string',tok:{str:'23\''}
+                  type:'#string',tok:{str:'23\''}
                 }]
               }]
             }]
