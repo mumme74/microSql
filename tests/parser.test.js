@@ -1,5 +1,5 @@
-const Parser = require('../src/parser.js').Parser;
-const console = require('console');
+import { Parser } from '../src/parser.js';
+import console from 'console';
 
 // switch these to print AST tree
 const debug = ()=>null;

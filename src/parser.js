@@ -1,4 +1,7 @@
-const { isObject, isFunction, isString } = require('./helpers.js');
+import {
+  isObject, isFunction, isString,
+  isDigit, isLetter
+ } from './helpers.js';
 
 /*
 // simplified SQL grammar
@@ -77,16 +80,8 @@ const tokens = [null, // dont begin at 0
   keywdNotCleaned = { 'IN': 1 };
 
 
-const isDigit = (c) => {
-  c = c.charCodeAt(0);
-  return c >= 48 && c <= 57
-}, isLetter = (c) => {
-  c = c.charCodeAt(0)
-  return (c >= 65 && c <= 90) ||
-    (c >= 97 && c <= 122);
-}
 
-class Parser {
+export class Parser {
   #sqlText = '';
   #pos = -1;
   #curTok = null;
@@ -1007,4 +1002,4 @@ class Parser {
   }
 }
 
-module.exports = { Parser, tokens, tokenKeys };
+export default { Parser, tokens, tokenKeys };

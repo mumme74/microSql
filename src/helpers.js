@@ -1,19 +1,25 @@
 
-
-const isObject = (obj) => {
+export const isObject = (obj) => {
   return typeof obj === 'object' &&
          obj !== null &&
          !Array.isArray(obj);
 }
 
-const isFunction = (obj) => {
+export const isFunction = (obj) => {
   return obj instanceof Function;
 }
 
-const isString = (obj) => {
+export const isString = (obj) => {
   return typeof obj === 'string';
 }
 
-module.exports = {
-  isObject, isFunction, isString
+export const isDigit = (c) => {
+  c = c.charCodeAt(0);
+  return c >= 48 && c <= 57
+}
+
+export const isLetter = (c) => {
+  c = c.charCodeAt(0)
+  return (c >= 65 && c <= 90) ||
+    (c >= 97 && c <= 122);
 }
