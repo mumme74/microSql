@@ -223,29 +223,81 @@ const filterTree = (tree, props = ['type', 'tok.str'])=>{
   }
   return walk(tree);
 }
-/*
+
 describe('Test CST tree', ()=>{
-  test('Should match tree', ()=>{
+  test('Should match select tree', ()=>{
     const parser = new Parser();
-    const tree = parser.scan('SELECT MIN(*) as b FROM tbl;');
+    const tree = parser.scan(
+      'SELECT MIN(*) as a, b, * FROM tbl as t1, t2 WHERE a=1 AND b<>"s" OR c IN (1,2);');
     const t = filterTree(tree);
     console.log('hej')
     console.log(JSON.stringify(t,null,2));
     expect(t).toMatchObject({
-      type:'expr',ch:[{
-        type:'selectExpr', ch:[{
+      type:'stmts',ch:[{
+        type:'selectStmt', ch:[{
           type:'selectFieldList', ch:[{
             type:'selectField', ch:[{
               type:'func', tok:{str:'MIN'}, ch:[{
-                type:'identifier', tok:{str:'*'}
-              },{
-                type:'alias', tok:{str:'b'}
+                type:'star', tok:{str:'*'}
               }]
+            },{
+              type:'alias', tok:{str:'a'}
+            }]
+          },{
+            type:'selectField', ch:[{
+              type:'fieldName', tok:{str:'b'}
+            }]
+          },{
+            type:'selectField',ch:[{
+              type:'star', tok:{str:'*'}
             }]
           }]
-        },{type:'selectTableList', ch:[{
+        },{
+          type:'selectTableList', ch:[{
             type: 'selectTable', ch:[{
-              type: 'identifier', tok:{str:'tbl'}
+              type: 'tableName', tok:{str:'tbl'}
+            },{
+              type: 'alias', tok:{str:'t1'}
+            }]
+          },{
+            type:'selectTable', ch:[{
+              type: 'tableName', tok:{str:'t2'}
+            }]
+          }]
+        },{
+          type:'where', ch:[{
+            type:'conditionOr', ch:[{
+              type:'conditionAnd', ch:[{
+                type:'condition', ch:[{
+                  type:'fieldName', tok:{str:'a'},
+                },{
+                  type:'operator', tok:{str:'='}
+                },{
+                  type:'number', tok:{str:'1'}
+                }]
+              },{
+                type:'condition', ch:[{
+                  type:'fieldName', tok:{str:'b'}
+                },{
+                  type:'operator', tok:{str:'<>'}
+                },{
+                  type:'string', tok:{str:'s'}
+                }]
+              }]
+            },{
+              type:'conditionAnd', ch:[{
+                type:'condition', ch:[{
+                  type:'fieldName', tok:{str:'c'}
+                },{
+                  type:'terminal', tok:{str:'IN'}
+                },{
+                  type:'valueList', ch:[{
+                    type:'number', tok:{str:'1'}
+                  },{
+                    type:'number', tok:{str:'2'}
+                  }]
+                }]
+              }]
             }]
           }]
         }]
@@ -253,4 +305,4 @@ describe('Test CST tree', ()=>{
     });
   });
 });
-*/
+

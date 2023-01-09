@@ -2,7 +2,7 @@ const {isObject, isFunction, isString} = require('./helpers.js');
 
 /*
 // simplified SQL grammar
-stmt = (select | update | insert | delete), ';' ;
+stmts             = {(select | update | insert | delete), ';'} ;
 
 selectStmt        = 'SELECT', selectFieldList, 'FROM', selectTableList, [where],
                       [groupBy], [having], [orderBy], [limit] ;
@@ -25,15 +25,16 @@ alias             = 'AS', identifier ;
 selectTableList   = selectTable, [{',', selectTable}] ;
 selectTable       = tableName, [alias] ;
 tableName         = identifier ;
-where             = 'WHERE', conditionList,
-conditionList     = condition, [{('AND' | 'OR'), condition}] ;
+where             = 'WHERE', conditionOr,
+conditionOr       = conditionAnd, ['OR',  conditionAnd] ;
+conditionAnd      = condition, ['AND', condition] ;
 condition         = fieldName, operator, value
                   | fieldName, 'IN', '(', valueList, ')' ;
 operator          = '<>' | '<=' | '>=' | '<' | '>' | '=' ;
-value             = string  | number ;
+value             = string | number ;
 groupBy           = 'GROUP', 'BY', showField, [{',', showField}] ;
 showField         = identifier, ['(', (identifier | star) ,')'] ;
-having            = 'HAVING', conditionList  ;
+having            = 'HAVING', conditionOr  ;
 orderBy           = 'ORDER', 'BY', orderByField, [{orderByField}] ;
 orderByField      = showField, ['DESC' | ASC] ;
 limit             = 'LIMIT', integer, [(',' | 'OFFSET'), integer] ;
@@ -72,7 +73,7 @@ keywords = tokens.slice(1, tokenKeys['BY']-1),
 keywordKeys = Object.fromEntries(
   keywords.map((k,i)=>[tokens[i],i])),
 keywdNotCleaned = {
-  'ASC':1, 'DESC':2, 'AND':3, 'OR':4};
+  'ASC':1, 'DESC':2, 'IN':3};
 
 
 const isDigit = (c) => {
@@ -239,7 +240,7 @@ class Parser {
                 if (isObject(ch))
                   chs.push(ch);
                 else if (Array.isArray(ch))
-                  chs.splice(0, 0, ...ch);
+                  chs.push(...ch);
                 ++oks;
               }
               if (oks === fncs.length)
@@ -251,7 +252,7 @@ class Parser {
               let ch;
               for (const fn of fncs) {
                 if ((ch = fn(parent)))
-                  return chAdd(parent, ch);
+                  return ch;
                 back();
               }
               return false;
@@ -263,7 +264,7 @@ class Parser {
                 if (isObject(ch))
                   chs.push(ch);
                 else if (Array.isArray(ch))
-                  chs.splice(0,0, ...ch);
+                  chs.push(...ch);
                 else if (ch === true)
                   break; // prevent endless loop on optional
               }
@@ -274,11 +275,10 @@ class Parser {
           }, optional = (fn, parent) => {
             return _optional = ()=>{
               let ch; const {back} = init();
-              if (ch = sqlsh(fn)(parent)) {
-                chAdd(parent, ch);
+              if (ch = sqlsh(fn)(parent))
                 return ch;
-              }
-                back();
+
+              back();
               return  true;
             }
           }, terminal = (name, parent) =>{
@@ -305,20 +305,22 @@ class Parser {
           }
     let lastErr = null;
 
-    // stmt = (selectStmt | updateStmt | insertStmt | deleteStmt), ';' ;
-    const stmt = ()=>{
+    // stmts = {(selectStmt | updateStmt | insertStmt | deleteStmt), ';'} ;
+    const stmts = ()=>{
       // reset
       lastErr = null;
       init();
 
       let ch;
 
-      const root = mkNode(null, stmt);
+      const root = mkNode(null, stmts);
       const seq = [];
-      if (ch = orSequence([
+      if (ch = repetition(
+          orSequence([
             selectStmt, updateStmt,
             insertStmt, deleteStmt
-          ], root)()
+          ], root)
+        , root)()
       )
         chAdd(root, ch);
       else
@@ -412,10 +414,14 @@ class Parser {
       let ch;
       const me = mkNode(p, selectFieldList);
       if (ch = andSequence([
-          selectField, optional(
-            repetition(andSequence([
-              sqlsh(terminal(',', me)), selectField
-            ], me))
+          selectField,
+          optional(
+            repetition(
+              andSequence([
+                sqlsh(terminal(',', me)),
+                selectField
+              ]
+            , me))
           , me)
         ], me)()
       ) {
@@ -433,7 +439,8 @@ class Parser {
       if (ch = orSequence([
           andSequence([
             orSequence([
-              func, fieldName
+              func,
+              fieldName
             ], me),
             optional(alias, me),
           ], me),
@@ -546,13 +553,13 @@ class Parser {
       return identifierAsName(p, tableName);
     }
 
-    //where             = 'WHERE', conditionList,
+    //where             = 'WHERE', conditionOr,
     const where = (p) => {
       let ch;
       const me = mkNode(p, where);
       if (ch = andSequence([
           terminal('WHERE', me),
-          conditionList,
+          conditionOr,
         ], me)()
       ) {
         chAdd(me, ch);
@@ -560,29 +567,36 @@ class Parser {
       }
     }
 
-    //conditionList     = condition, [{('AND' | 'OR'), condition}] ;
-    const conditionList = (p) => {
+    // conditionOr = conditionAnd, ['OR',  conditionAnd] ;
+    // conditionAnd = condition, ['AND', condition] ;
+    const conditionRouter = (p, caller, condFn, type) => {
       let ch;
-      const me = mkNode(p, conditionList);
+      const me = mkNode(p, caller);
       if (ch = andSequence([
-          condition,
+          condFn,
           optional(
-            repetition(
-              andSequence([
-                orSequence([
-                  sqlsh(terminal('AND', me)),
-                  sqlsh(terminal('OR', me))
-                ], me),
-                condition
-              ], me)
-            , me)
+            andSequence([
+              sqlsh(terminal(type, me)),
+              condFn
+            ], me)
           , me)
         ], me)()
       ) {
         chAdd(me, ch);
         return me;
       }
-      err("Förväntade villkor")
+    }
+
+    // conditionOr = conditionAnd, ['OR',  conditionAnd] ;
+    const conditionOr = (p) => {
+      return conditionRouter(
+        p, conditionOr, conditionAnd, 'OR');
+    }
+
+    // conditionAnd = condition, ['AND', condition] ;
+    const conditionAnd = (p) => {
+      return conditionRouter(
+        p, conditionAnd, condition, 'AND');
     }
 
     //condition         = fieldName, operator, value
@@ -677,12 +691,13 @@ class Parser {
       }
     }
 
-    //having            = 'HAVING', conditionList  ;
+    //having            = 'HAVING', conditionOr  ;
     const having = (p) => {
       let ch;
       const me = mkNode(p, having);
       if (ch = andSequence([
-          terminal('HAVING', me), conditionList
+          terminal('HAVING', me),
+          conditionOr
         ], me)()
       ) {
         chAdd(me, ch);
@@ -850,7 +865,7 @@ class Parser {
       let {tok} = init();
       const me = mkNode(p, number);
       if (tok.tok === tokenKeys['number']) {
-        mkNode(me, tok, ()=>+tok.str);
+        mkEndNode(me, tok, ()=>+tok.str);
         next();
         return me;
       }
@@ -872,7 +887,7 @@ class Parser {
     //letter = 'A' | 'a' to 'Z' | 'z' ;
     //digit = '0' to '9' ;
 
-    return stmt;
+    return stmts;
   }
 
   // remove all terminals if they are not of concern hinseforth
@@ -882,7 +897,7 @@ class Parser {
       // all below = are keywords and separators
       // see: tokens and keyWdNotCleaned
       if (ast.end && ast.tok.tok < tokenKeys['='] &&
-          !keywdNotCleaned[keywordKeys[ast.tok.tok]])
+          !keywdNotCleaned[ast.tok.str])
       {
         return;
       }
@@ -895,12 +910,13 @@ class Parser {
   }
 
   #flattenTree(root) {
-    const byPass = (byPassNode)=>{
+    const byPass = (byPassNode, shiftType)=>{
       const shiftIn = byPassNode.ch[0];
       byPassNode.p.ch[
         byPassNode.p.ch.indexOf(byPassNode)] = shiftIn;
       shiftIn.p = byPassNode.p;
-      shiftIn.type = byPassNode.type;
+      if (shiftType)
+        shiftIn.type = byPassNode.type;
       return shiftIn;
     }
 
@@ -909,9 +925,19 @@ class Parser {
       cst.ch.forEach(walk);
 
       switch (cst.type) {
-      case 'identifier': return byPass(cst);
-      case 'operator': return byPass(cst);
-      case 'alias': return byPass(cst);
+      case 'identifier':  case 'tableName':
+      case 'fieldName':   case 'funcName':
+      case 'operator':    case 'alias':
+      case 'star':  // fallthrough
+        return byPass(cst, true);
+      case 'value':
+        return byPass(cst, false);
+      case 'func':
+        // move funcName tok into func and remove funcName
+        const funcName = cst.ch.find(c=>c.type==='funcName');
+        cst.tok = funcName.tok;
+        cst.ch.splice(cst.ch.indexOf(funcName),1);
+        break;
       }
 
       return cst;
