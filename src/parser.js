@@ -115,13 +115,18 @@ export class Parser {
 
   #genErrMsg(msg, pos = this.#pos) {
     const chAdj = 15,
+      lastPos = this.#sqlText.length-1,
       startPos = pos - chAdj > 0 ? pos - chAdj : 0,
       padLen = (startPos > 0 ? 3 : 0),
-      sqlStr = (startPos > 0 ? '...' : '') +
-        this.#sqlText.slice(startPos, 50),
+      idxOfNewLine = this.#sqlText.indexOf('\n', startPos),
+      endPos = idxOfNewLine > -1 ?
+        idxOfNewLine :
+          lastPos < 50 ? lastPos : 50,
+      sqlStr = (padLen ? '...' : '') +
+        this.#sqlText.slice(startPos, endPos),
       posStr = sqlStr.padStart(
         sqlStr.length + padLen + pos - startPos, '-')
-        .slice(0, padLen + pos - startPos) + '^'
+        .slice(0, padLen + endPos - startPos) + '^'
     return `${msg} vid pos: ${pos}\n ${sqlStr}\n ${posStr}`;
   }
 
