@@ -138,6 +138,21 @@ describe('Sucessfull parser queries', ()=>{
     expect((new Parser('UPDATE tbl SET text=2 WHERE id IN (1,2,3,4);')));
   });
 
+  test('Should parse with 2 statements', ()=>{
+    expect((new Parser(`
+      UPDATE tbl SET text=2 WHERE id IN (1,2,3,4);
+      SELECT * from t;
+    `)));
+  });
+
+  test('Should parse with 4 statements', ()=>{
+    expect((new Parser(`
+      UPDATE tbl SET text=2 WHERE id IN (1,2,3,4);
+      SELECT * from t;
+      INSERT INTO tbl VALUES (2, 2, 3);
+      DELETE FROM t;
+    `)));
+  });
 });
 
 // ---------------- end successfull --------------------

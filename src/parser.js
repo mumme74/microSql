@@ -198,6 +198,8 @@ export class Parser {
   }
 
   // begin parser
+  static #supportedStmts = ['SELECT', 'UPDATE', 'INSERT', 'DELETE'];
+
   // begin parser helper functions
   #mkNode(parent, constructor, children = []) {
     return {
@@ -229,16 +231,17 @@ export class Parser {
   }
 
   #squelsh(fn) {
-    return _squelsh = (p) => {
+    const _squelsh = (p) => {
       try { return fn.call(this, p) } catch (e) {
         if (!(e instanceof SyntaxError))
           throw e;
       }
     }
+    return _squelsh; // Give the closure a name
   }
 
   #andSequence = (fncs) => {
-    return _andSequence = (parent) => {
+    const _andSequence = (parent) => {
       const chs = [];
       let ch, oks = 0;
       for (const fn of fncs) {
@@ -253,9 +256,10 @@ export class Parser {
       if (oks === fncs.length)
         return chs;
     }
+    return _andSequence; // Give the closure a name
   }
   #orSequence(fncs) {
-    return _orSequence = (parent) => {
+    const _orSequence = (parent) => {
       const chs = [], { back } = this.#init();
       let ch;
       for (const fn of fncs) {
@@ -265,10 +269,11 @@ export class Parser {
       }
       return false;
     }
+    return _orSequence; // Give the closure a name
   }
 
   #repetition(fn) {
-    return _repetition = (parent) => {
+    const _repetition = (parent) => {
       const chs = []; let ch;
       while ((ch = fn.call(this, parent))) {
         if (isObject(ch))
@@ -282,10 +287,11 @@ export class Parser {
         this.#err(`Förväntade ${fn.name}`);
       return chs.length > 0 ? chs : null;
     }
+    return _repetition; // Give the closure a name
   }
 
   #optional(fn) {
-    return _optional = (parent) => {
+    const _optional = (parent) => {
       let ch; const { back } = this.#init();
       if (ch = this.#squelsh(fn)(parent))
         return ch;
@@ -293,9 +299,11 @@ export class Parser {
       back();
       return true;
     }
+    return _optional; // Give the closure a name
   }
+
   #terminal(name, expect = false) {
-    return _terminal = (parent) => {
+    const _terminal = (parent) => {
       const tok = this.#curTok
       if (tok?.tok === tokenKeys[name] ||
         tok?.str === name) {
@@ -307,6 +315,7 @@ export class Parser {
       if (expect)
         this.#err(`Förväntade '${name}'`, tok);
     }
+    return _terminal; // Give the closure a name
   }
 
   #err(msg, tok = this.#curTok) {
@@ -325,19 +334,28 @@ export class Parser {
 
     const root = this.#mkNode(null, this.#stmts);
     const seq = [];
-    if (ch = this.#repetition(
-      this.#orSequence([
-        this.#selectStmt,
-        this.#updateStmt,
-        this.#insertStmt,
-        this.#deleteStmt
-      ])
-    )(root)
-    )
-      this.#chAdd(root, ch);
-    else
-      this.#err("Förväntade ett SELECT, UPDATE, INSERT eller DELETE statement.")
-    this.#terminal(';', true)(root)
+    do {
+      if (ch = this.#repetition(
+        this.#andSequence([
+          this.#orSequence([
+            this.#selectStmt,
+            this.#updateStmt,
+            this.#insertStmt,
+            this.#deleteStmt
+          ]),
+          this.#terminal(';', true)
+        ])
+      )(root)
+      )
+        this.#chAdd(root, ch);
+      else
+        this.#err(`Förväntade ett:${
+          Parser.#supportedStmts.slice(0,-1).join(', ')
+        } eller ${
+          Parser.#supportedStmts.slice(-1)[0]
+        } statement.`)
+    } while(this.#next());
+
     if (!root.ch.length)
       this.#err('Kan inte parsa SQL uttrycket');
     return root;
